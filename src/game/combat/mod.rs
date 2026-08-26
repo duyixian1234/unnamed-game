@@ -3,6 +3,7 @@
 use bevy::ecs::message::Message;
 use bevy::prelude::*;
 
+use crate::game::audio::{HitSfx, HurtSfx};
 use crate::game::enemy::{Enemy, EnemyKind};
 use crate::game::player::{Health, HitCooldown, Player, PLAYER_RADIUS};
 use crate::game::weapon::{MeleeHit, OrbitOrb, Projectile};
@@ -61,6 +62,7 @@ fn apply_damage(
 fn resolve_projectile_hits(
     mut commands: Commands,
     mut death_writer: MessageWriter<EnemyDied>,
+    mut hit_writer: MessageWriter<HitSfx>,
     mut projectiles: Query<(&mut Projectile, &Transform)>,
     mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<Projectile>>,
 ) {
@@ -78,6 +80,7 @@ fn resolve_projectile_hits(
                 continue;
             }
             projectile.hit_enemies.push(enemy_entity);
+            hit_writer.write(HitSfx);
             apply_damage(
                 &mut commands,
                 &mut death_writer,
@@ -94,6 +97,7 @@ fn resolve_projectile_hits(
 fn resolve_melee_hits(
     mut commands: Commands,
     mut death_writer: MessageWriter<EnemyDied>,
+    mut hit_writer: MessageWriter<HitSfx>,
     mut melee_hits: Query<(&mut MeleeHit, &Transform)>,
     mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<MeleeHit>>,
 ) {
@@ -111,6 +115,7 @@ fn resolve_melee_hits(
                 continue;
             }
             melee.hit_enemies.push(enemy_entity);
+            hit_writer.write(HitSfx);
             apply_damage(
                 &mut commands,
                 &mut death_writer,
@@ -127,6 +132,7 @@ fn resolve_melee_hits(
 fn resolve_orb_hits(
     mut commands: Commands,
     mut death_writer: MessageWriter<EnemyDied>,
+    mut hit_writer: MessageWriter<HitSfx>,
     mut orbs: Query<(&mut OrbitOrb, &Transform)>,
     mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<OrbitOrb>>,
 ) {
@@ -144,6 +150,7 @@ fn resolve_orb_hits(
                 continue;
             }
             orb.hit_enemies.push(enemy_entity);
+            hit_writer.write(HitSfx);
             apply_damage(
                 &mut commands,
                 &mut death_writer,
@@ -193,6 +200,7 @@ fn spawn_splitter_children(
 fn contact_damage(
     time: Res<Time>,
     mut next_state: ResMut<NextState<GameState>>,
+    mut hurt_writer: MessageWriter<HurtSfx>,
     mut players: Query<(&Transform, &mut Health, &mut HitCooldown), With<Player>>,
     enemies: Query<(&Transform, &Enemy), Without<Player>>,
 ) {
@@ -216,6 +224,7 @@ fn contact_damage(
         }
         health.current -= enemy.contact_damage();
         hit_cooldown.0.reset();
+        hurt_writer.write(HurtSfx);
 
         if health.current <= 0.0 {
             next_state.set(GameState::Defeat);

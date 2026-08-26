@@ -1,5 +1,6 @@
 //! Game-wide definitions: state machine and top-level plugin.
 
+pub mod audio;
 pub mod combat;
 pub mod economy;
 pub mod enemy;
@@ -35,6 +36,7 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<GameState>().add_plugins((
+            audio::SfxPlugin,
             combat::CombatPlugin,
             economy::EconomyPlugin,
             enemy::EnemyPlugin,

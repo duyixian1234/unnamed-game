@@ -1,8 +1,9 @@
 //! The materials economy: enemy drops, player pickup, and the wallet.
 
-use bevy::ecs::message::MessageReader;
+use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::prelude::*;
 
+use crate::game::audio::PickupSfx;
 use crate::game::combat::EnemyDied;
 use crate::game::player::Player;
 use crate::game::GameState;
@@ -57,6 +58,7 @@ fn drop_on_enemy_death(
 fn pick_up_materials(
     mut commands: Commands,
     mut wallet: ResMut<Materials>,
+    mut pickup_writer: MessageWriter<PickupSfx>,
     players: Query<&Transform, With<Player>>,
     mut materials: Query<(Entity, &Transform, &Material), Without<Player>>,
 ) {
@@ -70,6 +72,7 @@ fn pick_up_materials(
             continue;
         }
         wallet.count += material.value;
+        pickup_writer.write(PickupSfx);
         commands.entity(entity).despawn();
     }
 }
