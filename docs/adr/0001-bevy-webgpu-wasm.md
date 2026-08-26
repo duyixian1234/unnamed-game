@@ -1,0 +1,3 @@
+# WebAssembly rendering on Bevy 0.17 via WebGPU (not WebGL2)
+
+Targeting a browser build of a 2D Bevy 0.17 game, we render through **WebGPU** rather than the broader-compatibility WebGL2 default. This is a deliberate trade-off: WebGPU gives better performance headroom and a forward-looking path, at the cost of dropping browsers where WebGPU is not yet enabled (older Safari, some configurations). Bevy 0.17 supports this via its `webgpu` feature flag, overriding `webgl2`. Accepted even though it narrows browser reach, because the game is pure 2D sprites and we prefer a modern, future-proof backend; if compatibility later matters, this decision is reversible by switching the feature flag (WebGL2 remains supported by the same codebase).

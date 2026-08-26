@@ -1,0 +1,3 @@
+# Wasm build & dev toolchain: Trunk with a dual native/wasm target
+
+The project keeps **two build targets from one source tree**: `cargo run` for a fast native loop during development, and a Trunk-based wasm build (`trunk serve`) for the browser. Trunk was chosen over wasm-pack or a hand-rolled wasm-bindgen script because it bundles asset serving, wasm-bindgen wiring, and auto-rebuild for the interactive browser loop this game needs. The native target is kept not as a shipping goal but as the fastest iteration path. Tooling is swappable (Trunk → wasm-pack is low-cost), so this is a low-stakes but recorded convention to avoid future confusion about why two build paths exist.

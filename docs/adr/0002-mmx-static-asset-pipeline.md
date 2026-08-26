@@ -1,0 +1,3 @@
+# mmx assets are generated once into a curated static assets/ tree
+
+Game art/audio is produced with the `mmx` CLI, then hand-curated and committed into `assets/` and loaded at runtime; `tools/` holds reproducible generation scripts. We deliberately do **not** regenerate assets on every build or at startup. Rationale: assets are static, should never depend on network/API availability at build or runtime, and one-time curation keeps visual style consistent. This also means a future reader should not try to "fix" a missing asset by calling mmx live — the generation scripts are re-runnable via `tools/` when new assets are actually wanted.
