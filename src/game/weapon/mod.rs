@@ -45,6 +45,9 @@ pub struct Projectile {
     pub speed: f32,
     pub direction: Vec2,
     pub lifetime: Timer,
+    /// Enemies this projectile has already struck, so a piercing shot only
+    /// hits each enemy once.
+    pub hit_enemies: Vec<Entity>,
 }
 
 /// Plugin for the weapon system.
@@ -113,6 +116,7 @@ fn auto_fire(
             speed: weapon.projectile_speed,
             direction,
             lifetime: Timer::from_seconds(3.0, TimerMode::Once),
+            hit_enemies: Vec::new(),
         },
         Sprite {
             color: Color::srgb(0.95, 0.85, 0.3),

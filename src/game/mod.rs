@@ -1,5 +1,6 @@
 //! Game-wide definitions: state machine and top-level plugin.
 
+pub mod combat;
 pub mod enemy;
 pub mod player;
 pub mod ui;
@@ -33,6 +34,7 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<GameState>().add_plugins((
+            combat::CombatPlugin,
             enemy::EnemyPlugin,
             player::PlayerPlugin,
             waves::WavesPlugin,
