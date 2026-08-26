@@ -4,7 +4,7 @@ use bevy::math::Vec2;
 use bevy::prelude::*;
 
 use crate::game::enemy::Enemy;
-use crate::game::player::Player;
+use crate::game::player::{Player, PlayerStats};
 use crate::game::GameState;
 
 /// Maximum number of equipped weapons (per CONTEXT.md).
@@ -138,11 +138,11 @@ fn give_starting_weapons(
 fn auto_attack(
     time: Res<Time>,
     mut commands: Commands,
-    players: Query<&Transform, With<Player>>,
+    players: Query<(&Transform, &PlayerStats), With<Player>>,
     mut weapons: Query<&mut Weapon, Without<Player>>,
     enemies: Query<&Transform, (With<Enemy>, Without<Player>)>,
 ) {
-    let Ok(player_transform) = players.single() else {
+    let Ok((player_transform, stats)) = players.single() else {
         return;
     };
     let player_pos = player_transform.translation.truncate();
@@ -169,7 +169,7 @@ fn auto_attack(
                 }
                 commands.spawn((
                     Projectile {
-                        damage: weapon.damage,
+                        damage: weapon.damage * stats.damage_mult,
                         speed: weapon.projectile_speed,
                         direction,
                         lifetime: Timer::from_seconds(weapon.range / weapon.projectile_speed, TimerMode::Once),
@@ -187,7 +187,7 @@ fn auto_attack(
                 let radius = weapon.range;
                 commands.spawn((
                     MeleeHit {
-                        damage: weapon.damage,
+                        damage: weapon.damage * stats.damage_mult,
                         radius,
                         hit_enemies: Vec::new(),
                     },
@@ -248,17 +248,17 @@ fn expire_melee_hits(
 fn update_orbs(
     mut commands: Commands,
     time: Res<Time>,
-    players: Query<&Transform, With<Player>>,
+    players: Query<(&Transform, &PlayerStats), With<Player>>,
     mut weapons: Query<(&mut Weapon, &Transform), (Without<Player>, Without<OrbitOrb>)>,
     mut orbs: Query<(Entity, &mut OrbitOrb, &mut Transform), (Without<Player>, Without<Weapon>)>,
 ) {
-    let Ok(player_transform) = players.single() else {
+    let Ok((player_transform, stats)) = players.single() else {
         return;
     };
     let player_pos = player_transform.translation;
 
     // Rotate existing orbs around the player.
-    for (entity, mut orb, mut transform) in &mut orbs {
+    for (_, mut orb, mut transform) in &mut orbs {
         orb.angle += orb.angular_speed * time.delta_secs();
         let offset = Vec2::from_angle(orb.angle) * orb.radius;
         transform.translation = player_pos.truncate().extend(0.0) + offset.extend(0.0);
@@ -277,7 +277,7 @@ fn update_orbs(
     for _ in existing..needed {
         commands.spawn((
             OrbitOrb {
-                damage: 8.0,
+                damage: 8.0 * stats.damage_mult,
                 angle: 0.0,
                 angular_speed: 2.5,
                 radius: 70.0,

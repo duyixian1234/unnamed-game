@@ -1,16 +1,16 @@
 //! UI screens built on `bevy_ui` (HUD, menus, shop).
 
 pub mod main_menu;
+pub mod shop;
 
 use bevy::prelude::*;
 
-/// Plugin for all UI screens. Only the MainMenu exists for now (T2); later
-/// milestones add the HUD and Shop.
+/// Plugin for all UI screens.
 pub struct UIPlugin;
 
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(main_menu::MainMenuPlugin);
+        app.add_plugins((main_menu::MainMenuPlugin, shop::ShopPlugin));
     }
 }
 

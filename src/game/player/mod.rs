@@ -27,6 +27,27 @@ const HIT_INVULNERABILITY: f32 = 0.6;
 #[derive(Component)]
 pub struct HitCooldown(pub Timer);
 
+/// Player stats that shop items can boost (pure stat-gain items per CONTEXT.md).
+#[derive(Component)]
+pub struct PlayerStats {
+    /// Damage multiplier applied to all weapons.
+    pub damage_mult: f32,
+    /// Movement speed multiplier.
+    pub speed_mult: f32,
+    /// Bonus max HP added at spawn (used by +HP items).
+    pub max_hp_bonus: f32,
+}
+
+impl Default for PlayerStats {
+    fn default() -> Self {
+        Self {
+            damage_mult: 1.0,
+            speed_mult: 1.0,
+            max_hp_bonus: 0.0,
+        }
+    }
+}
+
 /// Plugin for the player: spawning and movement.
 pub struct PlayerPlugin;
 
@@ -58,6 +79,7 @@ fn spawn_player_if_absent(
             current: 100.0,
         },
         HitCooldown(Timer::from_seconds(HIT_INVULNERABILITY, TimerMode::Once)),
+        PlayerStats::default(),
         Sprite {
             color: Color::srgb(0.3, 0.8, 0.4),
             custom_size: Some(Vec2::splat(PLAYER_RADIUS * 2.0)),
@@ -67,13 +89,13 @@ fn spawn_player_if_absent(
     ));
 }
 
-/// Move the player with WASD, clamped to the visible world.
+/// Move the player with WASD, applying any shop-bought speed multiplier.
 fn player_movement(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut players: Query<(&mut Transform,), With<Player>>,
+    mut players: Query<(&mut Transform, &PlayerStats), With<Player>>,
 ) {
-    let Ok((mut transform,)) = players.single_mut() else {
+    let Ok((mut transform, stats)) = players.single_mut() else {
         return;
     };
 
@@ -95,7 +117,7 @@ fn player_movement(
     }
 
     let dir = dir.normalize();
-    let delta = dir * PLAYER_SPEED * time.delta_secs();
+    let delta = dir * PLAYER_SPEED * stats.speed_mult * time.delta_secs();
     transform.translation.x += delta.x;
     transform.translation.y += delta.y;
 }
