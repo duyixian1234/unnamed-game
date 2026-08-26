@@ -1,5 +1,6 @@
 //! Game-wide definitions: state machine and top-level plugin.
 
+pub mod player;
 pub mod ui;
 
 use bevy::prelude::*;
@@ -28,6 +29,7 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        app.init_state::<GameState>().add_plugins(UIPlugin);
+        app.init_state::<GameState>()
+            .add_plugins((player::PlayerPlugin, UIPlugin));
     }
 }
