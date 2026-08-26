@@ -4,47 +4,129 @@ use bevy::math::Vec2;
 use bevy::prelude::*;
 
 use crate::game::assets::{atlas_sprite, SpriteAssets, ATLAS_CELL};
+use crate::game::economy::Material;
 use crate::game::enemy::{Enemy, EnemyKind};
+use crate::game::player::Player;
+use crate::game::weapon::{MeleeHit, OrbitOrb, Projectile};
 use crate::game::GameState;
 
 /// Half-extents of the play field; enemies spawn just outside these edges.
 pub const FIELD_HALF_WIDTH: f32 = 900.0;
 pub const FIELD_HALF_HEIGHT: f32 = 560.0;
 
-/// Time between enemy spawns within a wave (seconds).
-const SPAWN_INTERVAL: f32 = 1.1;
+/// Base time between enemy spawns within a wave (scales down as waves rise).
+const BASE_SPAWN_INTERVAL: f32 = 1.1;
 
-/// The active wave state: which wave we're on and when to spawn the next enemy.
+/// Number of waves to survive for victory (per CONTEXT.md).
+pub const MAX_WAVES: u32 = 20;
+
+/// How long each wave lasts (seconds); difficulty escalates via spawn rate and
+/// enemy stats.
+const WAVE_DURATION: f32 = 30.0;
+
+/// The active wave state: which wave we're on and its timers.
 #[derive(Resource)]
 pub struct Wave {
     /// 1-based current wave number.
     pub number: u32,
-    /// Counts down; when it hits zero we spawn one enemy and reset.
+    /// Counts down; at zero we spawn one enemy and reset (rate scales by wave).
     pub spawn_timer: Timer,
+    /// Counts down to the end of the current wave.
+    pub wave_timer: Timer,
 }
 
 impl Default for Wave {
     fn default() -> Self {
         Self {
             number: 1,
-            spawn_timer: Timer::from_seconds(SPAWN_INTERVAL, TimerMode::Repeating),
+            spawn_timer: Timer::from_seconds(BASE_SPAWN_INTERVAL, TimerMode::Repeating),
+            wave_timer: Timer::from_seconds(WAVE_DURATION, TimerMode::Once),
         }
     }
 }
 
-/// Plugin for wave lifecycle and edge spawning.
+/// Plugin for wave lifecycle, progression, and edge spawning.
 pub struct WavesPlugin;
 
 impl Plugin for WavesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Wave>()
-            .add_systems(OnEnter(GameState::InGame), reset_wave)
-            .add_systems(Update, spawn_from_edges.run_if(in_state(GameState::InGame)));
+            .add_systems(OnEnter(GameState::InGame), start_wave)
+            .add_systems(OnEnter(GameState::MainMenu), reset_run)
+            .add_systems(
+                OnExit(GameState::InGame),
+                clear_combat_entities,
+            )
+            .add_systems(OnEnter(GameState::Victory), clear_player)
+            .add_systems(OnEnter(GameState::Defeat), clear_player)
+            .add_systems(
+                Update,
+                (spawn_from_edges, advance_wave).run_if(in_state(GameState::InGame)),
+            );
     }
 }
 
-fn reset_wave(mut wave: ResMut<Wave>) {
-    *wave = Wave::default();
+/// Leaving InGame (to Shop, Victory, or Defeat) clears the field of enemies,
+/// projectiles, orbs, melee hitboxes, and dropped materials. The player is kept
+/// across waves but despawned on Victory/Defeat by `clear_player`.
+fn clear_combat_entities(
+    mut commands: Commands,
+    enemies: Query<Entity, With<Enemy>>,
+    projectiles: Query<Entity, With<Projectile>>,
+    orbs: Query<Entity, With<OrbitOrb>>,
+    melee: Query<Entity, With<MeleeHit>>,
+    materials: Query<Entity, With<Material>>,
+) {
+    for entity in enemies
+        .iter()
+        .chain(projectiles.iter())
+        .chain(orbs.iter())
+        .chain(melee.iter())
+        .chain(materials.iter())
+    {
+        commands.entity(entity).despawn();
+    }
+}
+
+/// The player is removed on Victory/Defeat so a fresh run spawns a new one.
+fn clear_player(
+    mut commands: Commands,
+    players: Query<Entity, With<Player>>,
+) {
+    for entity in &players {
+        commands.entity(entity).despawn();
+    }
+}
+
+/// Enter a wave: reset the timers (keeping the current wave number, which was
+/// incremented by `advance_wave` or is 1 on a fresh run).
+fn start_wave(mut wave: ResMut<Wave>) {
+    wave.spawn_timer =
+        Timer::from_seconds((BASE_SPAWN_INTERVAL / (1.0 + wave.number as f32 * 0.05)).max(0.25), TimerMode::Repeating);
+    wave.wave_timer = Timer::from_seconds(WAVE_DURATION, TimerMode::Once);
+}
+
+/// Fresh run: reset the wave counter back to 1.
+fn reset_run(mut wave: ResMut<Wave>) {
+    wave.number = 1;
+}
+
+/// When a wave's time elapses, advance to the Shop or to Victory.
+fn advance_wave(
+    time: Res<Time>,
+    mut wave: ResMut<Wave>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    wave.wave_timer.tick(time.delta());
+    if !wave.wave_timer.is_finished() {
+        return;
+    }
+    if wave.number >= MAX_WAVES {
+        next_state.set(GameState::Victory);
+    } else {
+        wave.number += 1;
+        next_state.set(GameState::Shop);
+    }
 }
 
 /// Spawn an enemy from a random edge whenever the wave timer fires.

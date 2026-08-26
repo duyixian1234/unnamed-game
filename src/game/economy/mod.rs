@@ -32,9 +32,15 @@ pub struct EconomyPlugin;
 impl Plugin for EconomyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Materials>()
+            .add_systems(OnEnter(GameState::MainMenu), reset_materials)
             .add_systems(Update, (drop_on_enemy_death, pick_up_materials)
                 .run_if(in_state(GameState::InGame)));
     }
+}
+
+/// A fresh run starts with an empty wallet.
+fn reset_materials(mut materials: ResMut<Materials>) {
+    materials.count = 0;
 }
 
 /// Spawn a material where each enemy died (EnemyDied message).
