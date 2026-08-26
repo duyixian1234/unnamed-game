@@ -13,6 +13,9 @@ tools/out/
 # Local build/setup scratch (logs, transient tool output)
 .setup/
 
+# Local Cloudflare Pages/Wrangler state
+.wrangler/
+
 # Editor / OS
 .idea/
 .vscode/

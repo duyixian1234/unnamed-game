@@ -5,16 +5,42 @@ edition = "2021"
 
 [dependencies]
 # Bevy 0.17 pinned (see CONTEXT.md -> Decisions, ADR-0001).
-# WebAssembly render backend = WebGPU (not WebGL2). We build from default
-# features (which include everything a window + 2D sprites need) but on wasm we
-# keep WebGPU enabled and WebGL2 disabled so the browser build uses WebGPU.
-bevy = { version = "0.17", default-features = true }
+# We opt OUT of default features and enable only what a 2D sprite game needs.
+# This removes 3D (PBR/gltf/animation/scene/mesh/light/shader/gizmos/picking) and
+# keeps the wasm bundle small enough to deploy to Cloudflare Pages (<=25 MiB).
+# WebGPU is enabled and WebGL2 is left off, per ADR-0001.
+bevy = { version = "0.17", default-features = false, features = [
+  "std",
+  "async_executor",
+  "bevy_asset",
+  "bevy_audio",
+  "bevy_camera",
+  "bevy_color",
+  "bevy_core_pipeline",
+  "bevy_image",
+  "bevy_input_focus",
+  "bevy_log",
+  "bevy_render",
+  "bevy_sprite",
+  "bevy_sprite_render",
+  "bevy_state",
+  "bevy_text",
+  "bevy_ui",
+  "bevy_ui_render",
+  "bevy_window",
+  "bevy_winit",
+  "custom_cursor",
+  "default_font",
+  "png",
+  "reflect_auto_register",
+  "vorbis",
+  "webgpu",
+  "x11",
+  "wayland",
+] }
 
 # Random positions for edge spawning and drop scatter.
 rand = "0.9"
-
-# Asset loading is deferred to later milestones; bevy_asset is part of default
-# features so we get a plain window for T1.
 
 [profile.dev]
 # Slightly faster local iteration for the native loop.
@@ -22,3 +48,7 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[profile.release]
+# Optimize the wasm binary size for deployment.
+opt-level = "s"
