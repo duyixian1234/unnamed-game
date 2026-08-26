@@ -58,21 +58,52 @@ fn spawn_from_edges(
     }
 
     let position = random_edge_position();
-    let speed = 120.0 + wave.number as f32 * 8.0;
+    let (kind, speed, health, color, size) = random_enemy_spec(wave.number);
 
     commands.spawn((
         Enemy {
-            kind: EnemyKind::MeleeRusher,
+            kind,
             speed,
-            health: 30.0,
+            health,
+            split_depth: if kind == EnemyKind::Splitter { 2 } else { 0 },
         },
         Sprite {
-            color: Color::srgb(0.8, 0.3, 0.3),
-            custom_size: Some(Vec2::splat(32.0)),
+            color,
+            custom_size: Some(Vec2::splat(size)),
             ..default()
         },
         Transform::from_translation(position.extend(0.0)),
     ));
+}
+
+/// Pick a random enemy type with wave-scaled stats and a placeholder color.
+fn random_enemy_spec(wave: u32) -> (EnemyKind, f32, f32, Color, f32) {
+    use rand::Rng;
+    let mut rng = rand::rng();
+    let base = wave as f32;
+    match rng.random_range(0..3) {
+        0 => (
+            EnemyKind::MeleeRusher,
+            120.0 + base * 8.0,
+            30.0 + base * 2.0,
+            Color::srgb(0.8, 0.3, 0.3),
+            32.0,
+        ),
+        1 => (
+            EnemyKind::SpeedBurster,
+            200.0 + base * 6.0,
+            18.0 + base,
+            Color::srgb(0.9, 0.6, 0.2),
+            24.0,
+        ),
+        _ => (
+            EnemyKind::Splitter,
+            140.0 + base * 6.0,
+            40.0 + base * 2.0,
+            Color::srgb(0.85, 0.55, 0.25),
+            36.0,
+        ),
+    }
 }
 
 fn random_edge_position() -> Vec2 {

@@ -4,27 +4,44 @@ use bevy::prelude::*;
 
 use crate::game::player::Player;
 
-/// The enemy archetypes for the MVP. Only `MeleeRusher` exists yet; the rest
-/// are added in a later milestone (T11).
+/// The MVP enemy archetypes (per CONTEXT.md).
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnemyKind {
-    /// Straight-line pursuer that deals contact damage. Fast enough to reach
-    /// the player but not as fast as a SpeedBurster.
+    /// Straight-line pursuer that deals contact damage.
     MeleeRusher,
+    /// Accelerates toward the player the closer it gets.
+    SpeedBurster,
+    /// Splits into smaller enemies on death.
+    Splitter,
 }
 
 /// The enemy's stats and identity.
 #[derive(Component)]
 pub struct Enemy {
     pub kind: EnemyKind,
+    /// Current movement speed (may change, e.g. a burster accelerating).
     pub speed: f32,
     pub health: f32,
+    /// How many more times a Splitter may split (0 = splitter minion that
+    /// can no longer split; avoids infinite recursion).
+    pub split_depth: u8,
 }
 
 impl Enemy {
     pub fn radius(&self) -> f32 {
         match self.kind {
             EnemyKind::MeleeRusher => 16.0,
+            EnemyKind::SpeedBurster => 12.0,
+            EnemyKind::Splitter => 18.0,
+        }
+    }
+
+    /// Contact damage dealt to the player per kind.
+    pub fn contact_damage(&self) -> f32 {
+        match self.kind {
+            EnemyKind::MeleeRusher => 10.0,
+            EnemyKind::SpeedBurster => 6.0,
+            EnemyKind::Splitter => 8.0,
         }
     }
 }
@@ -38,11 +55,11 @@ impl Plugin for EnemyPlugin {
     }
 }
 
-/// Move every enemy in a straight line toward the player.
+/// Move every enemy toward the player, applying per-kind movement rules.
 fn enemy_pursuit(
     time: Res<Time>,
     players: Query<&Transform, (With<Player>, Without<Enemy>)>,
-    mut enemies: Query<(&mut Transform, &Enemy), Without<Player>>,
+    mut enemies: Query<(&mut Transform, &mut Enemy), Without<Player>>,
 ) {
     let Ok(player) = players.single() else {
         return;
@@ -55,7 +72,14 @@ fn enemy_pursuit(
             continue;
         }
         let dir = dir / dist;
-        let delta = dir * enemy.speed * time.delta_secs();
+
+        // Per-kind speed: bursters accelerate as they close in on the player.
+        let mut speed = enemy.speed;
+        if enemy.kind == EnemyKind::SpeedBurster {
+            speed += (800.0 / (dist + 40.0)).min(320.0);
+        }
+
+        let delta = dir * speed * time.delta_secs();
         transform.translation.x += delta.x;
         transform.translation.y += delta.y;
     }

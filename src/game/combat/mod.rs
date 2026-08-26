@@ -61,22 +61,57 @@ fn resolve_projectile_hits(
             if enemy.health <= 0.0 {
                 let position = enemy_pos;
                 let kind = enemy.kind;
+                let split_depth = enemy.split_depth;
                 death_writer.write(EnemyDied {
                     entity: enemy_entity,
                     position,
                     kind,
                 });
+                spawn_splitter_children(
+                    &mut commands,
+                    position,
+                    split_depth,
+                );
                 commands.entity(enemy_entity).despawn();
             }
         }
     }
 }
 
+/// A dying Splitter breaks into smaller Splitters (up to its split depth).
+fn spawn_splitter_children(
+    commands: &mut Commands,
+    position: Vec2,
+    split_depth: u8,
+) {
+    if split_depth == 0 {
+        return;
+    }
+    let child_depth = split_depth - 1;
+    for i in 0..2 {
+        let angle = std::f32::consts::TAU * (i as f32) / 2.0;
+        let offset = Vec2::new(18.0, 0.0).rotate(Vec2::from_angle(angle));
+        commands.spawn((
+            Enemy {
+                kind: EnemyKind::Splitter,
+                speed: 150.0,
+                health: 15.0,
+                split_depth: child_depth,
+            },
+            Sprite {
+                color: Color::srgb(0.85, 0.55, 0.25),
+                custom_size: Some(Vec2::splat(20.0)),
+                ..default()
+            },
+            Transform::from_translation((position + offset).extend(0.0)),
+        ));
+    }
+}
+
 /// Enemy contact damages the player, gated by a short invulnerability window.
 ///
 /// Once the player's HP hits zero we transition to the Defeat state (one-life
-/// roguelike). Contact damage is `EnemyKind`-agnostic for now; per-kind contact
-/// stats can be tuned later.
+/// roguelike). Contact damage varies by `EnemyKind`.
 fn contact_damage(
     time: Res<Time>,
     mut next_state: ResMut<NextState<GameState>>,
@@ -101,7 +136,7 @@ fn contact_damage(
         if !hit_cooldown.0.is_finished() {
             continue;
         }
-        health.current -= 10.0;
+        health.current -= enemy.contact_damage();
         hit_cooldown.0.reset();
 
         if health.current <= 0.0 {
