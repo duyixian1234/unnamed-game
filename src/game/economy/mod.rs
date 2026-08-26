@@ -3,6 +3,7 @@
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::prelude::*;
 
+use crate::game::assets::{atlas_index, atlas_sprite, SpriteAssets, ATLAS_CELL};
 use crate::game::audio::PickupSfx;
 use crate::game::combat::EnemyDied;
 use crate::game::player::Player;
@@ -39,17 +40,15 @@ impl Plugin for EconomyPlugin {
 /// Spawn a material where each enemy died (EnemyDied message).
 fn drop_on_enemy_death(
     mut commands: Commands,
+    sprite_assets: Res<SpriteAssets>,
     mut deaths: MessageReader<EnemyDied>,
 ) {
     for death in deaths.read() {
         commands.spawn((
             Material { value: MATERIAL_VALUE },
-            Sprite {
-                color: Color::srgb(0.6, 0.4, 0.9),
-                custom_size: Some(Vec2::splat(12.0)),
-                ..default()
-            },
-            Transform::from_translation(death.position.extend(0.0)),
+            atlas_sprite(&sprite_assets, atlas_index::MATERIAL),
+            Transform::from_translation(death.position.extend(0.0))
+                .with_scale(Vec3::splat(18.0 / ATLAS_CELL as f32)),
         ));
     }
 }

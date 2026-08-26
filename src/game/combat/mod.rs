@@ -3,6 +3,7 @@
 use bevy::ecs::message::Message;
 use bevy::prelude::*;
 
+use crate::game::assets::{atlas_sprite, SpriteAssets, ATLAS_CELL};
 use crate::game::audio::{HitSfx, HurtSfx};
 use crate::game::enemy::{Enemy, EnemyKind};
 use crate::game::player::{Health, HitCooldown, Player, PLAYER_RADIUS};
@@ -35,6 +36,7 @@ impl Plugin for CombatPlugin {
 fn apply_damage(
     commands: &mut Commands,
     death_writer: &mut MessageWriter<EnemyDied>,
+    sprite_assets: &SpriteAssets,
     enemy_entity: Entity,
     enemy: &mut Enemy,
     enemy_pos: Vec2,
@@ -51,7 +53,7 @@ fn apply_damage(
         position: enemy_pos,
         kind,
     });
-    spawn_splitter_children(commands, enemy_pos, split_depth);
+    spawn_splitter_children(commands, sprite_assets, enemy_pos, split_depth);
     commands.entity(enemy_entity).despawn();
 }
 
@@ -63,6 +65,7 @@ fn resolve_projectile_hits(
     mut commands: Commands,
     mut death_writer: MessageWriter<EnemyDied>,
     mut hit_writer: MessageWriter<HitSfx>,
+    sprite_assets: Res<SpriteAssets>,
     mut projectiles: Query<(&mut Projectile, &Transform)>,
     mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<Projectile>>,
 ) {
@@ -84,6 +87,7 @@ fn resolve_projectile_hits(
             apply_damage(
                 &mut commands,
                 &mut death_writer,
+                &sprite_assets,
                 enemy_entity,
                 &mut enemy,
                 enemy_pos,
@@ -98,6 +102,7 @@ fn resolve_melee_hits(
     mut commands: Commands,
     mut death_writer: MessageWriter<EnemyDied>,
     mut hit_writer: MessageWriter<HitSfx>,
+    sprite_assets: Res<SpriteAssets>,
     mut melee_hits: Query<(&mut MeleeHit, &Transform)>,
     mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<MeleeHit>>,
 ) {
@@ -119,6 +124,7 @@ fn resolve_melee_hits(
             apply_damage(
                 &mut commands,
                 &mut death_writer,
+                &sprite_assets,
                 enemy_entity,
                 &mut enemy,
                 enemy_pos,
@@ -133,6 +139,7 @@ fn resolve_orb_hits(
     mut commands: Commands,
     mut death_writer: MessageWriter<EnemyDied>,
     mut hit_writer: MessageWriter<HitSfx>,
+    sprite_assets: Res<SpriteAssets>,
     mut orbs: Query<(&mut OrbitOrb, &Transform)>,
     mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<OrbitOrb>>,
 ) {
@@ -154,6 +161,7 @@ fn resolve_orb_hits(
             apply_damage(
                 &mut commands,
                 &mut death_writer,
+                &sprite_assets,
                 enemy_entity,
                 &mut enemy,
                 enemy_pos,
@@ -166,6 +174,7 @@ fn resolve_orb_hits(
 /// A dying Splitter breaks into smaller Splitters (up to its split depth).
 fn spawn_splitter_children(
     commands: &mut Commands,
+    sprite_assets: &SpriteAssets,
     position: Vec2,
     split_depth: u8,
 ) {
@@ -176,6 +185,7 @@ fn spawn_splitter_children(
     for i in 0..2 {
         let angle = std::f32::consts::TAU * (i as f32) / 2.0;
         let offset = Vec2::new(18.0, 0.0).rotate(Vec2::from_angle(angle));
+        let index = sprite_assets.enemy_index(EnemyKind::Splitter);
         commands.spawn((
             Enemy {
                 kind: EnemyKind::Splitter,
@@ -183,12 +193,9 @@ fn spawn_splitter_children(
                 health: 15.0,
                 split_depth: child_depth,
             },
-            Sprite {
-                color: Color::srgb(0.85, 0.55, 0.25),
-                custom_size: Some(Vec2::splat(20.0)),
-                ..default()
-            },
-            Transform::from_translation((position + offset).extend(0.0)),
+            atlas_sprite(sprite_assets, index),
+            Transform::from_translation((position + offset).extend(0.0))
+                .with_scale(Vec3::splat(20.0 / ATLAS_CELL as f32)),
         ));
     }
 }

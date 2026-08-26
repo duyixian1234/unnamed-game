@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 
+use crate::game::assets::{atlas_index, atlas_sprite, SpriteAssets, ATLAS_CELL};
 use crate::game::GameState;
 
 pub const PLAYER_SPEED: f32 = 260.0;
@@ -67,6 +68,7 @@ fn no_player_exists(players: Query<&Player>) -> bool {
 
 fn spawn_player_if_absent(
     mut commands: Commands,
+    sprite_assets: Res<SpriteAssets>,
     players: Query<(), With<Player>>,
 ) {
     if !players.is_empty() {
@@ -80,12 +82,12 @@ fn spawn_player_if_absent(
         },
         HitCooldown(Timer::from_seconds(HIT_INVULNERABILITY, TimerMode::Once)),
         PlayerStats::default(),
-        Sprite {
-            color: Color::srgb(0.3, 0.8, 0.4),
-            custom_size: Some(Vec2::splat(PLAYER_RADIUS * 2.0)),
-            ..default()
-        },
-        Transform::from_xyz(0.0, 0.0, 0.0),
+        atlas_sprite(&sprite_assets, atlas_index::PLAYER),
+        // Atlas cells are 128px; scale down so the visual matches the collision
+        // radius (2 * PLAYER_RADIUS).
+        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(
+            (PLAYER_RADIUS * 2.0) / ATLAS_CELL as f32,
+        )),
     ));
 }
 

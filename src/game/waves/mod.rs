@@ -3,6 +3,7 @@
 use bevy::math::Vec2;
 use bevy::prelude::*;
 
+use crate::game::assets::{atlas_sprite, SpriteAssets, ATLAS_CELL};
 use crate::game::enemy::{Enemy, EnemyKind};
 use crate::game::GameState;
 
@@ -46,11 +47,12 @@ fn reset_wave(mut wave: ResMut<Wave>) {
     *wave = Wave::default();
 }
 
-/// Spawn a melee-rusher from a random edge whenever the wave timer fires.
+/// Spawn an enemy from a random edge whenever the wave timer fires.
 fn spawn_from_edges(
     time: Res<Time>,
     mut wave: ResMut<Wave>,
     mut commands: Commands,
+    sprite_assets: Res<SpriteAssets>,
 ) {
     wave.spawn_timer.tick(time.delta());
     if !wave.spawn_timer.just_finished() {
@@ -58,7 +60,13 @@ fn spawn_from_edges(
     }
 
     let position = random_edge_position();
-    let (kind, speed, health, color, size) = random_enemy_spec(wave.number);
+    let (kind, speed, health) = random_enemy_spec(wave.number);
+    let index = sprite_assets.enemy_index(kind);
+    let size = match kind {
+        EnemyKind::MeleeRusher => 32.0,
+        EnemyKind::SpeedBurster => 24.0,
+        EnemyKind::Splitter => 36.0,
+    };
 
     commands.spawn((
         Enemy {
@@ -67,17 +75,14 @@ fn spawn_from_edges(
             health,
             split_depth: if kind == EnemyKind::Splitter { 2 } else { 0 },
         },
-        Sprite {
-            color,
-            custom_size: Some(Vec2::splat(size)),
-            ..default()
-        },
-        Transform::from_translation(position.extend(0.0)),
+        atlas_sprite(&sprite_assets, index),
+        Transform::from_translation(position.extend(0.0))
+            .with_scale(Vec3::splat(size / ATLAS_CELL as f32)),
     ));
 }
 
-/// Pick a random enemy type with wave-scaled stats and a placeholder color.
-fn random_enemy_spec(wave: u32) -> (EnemyKind, f32, f32, Color, f32) {
+/// Pick a random enemy type with wave-scaled stats.
+fn random_enemy_spec(wave: u32) -> (EnemyKind, f32, f32) {
     use rand::Rng;
     let mut rng = rand::rng();
     let base = wave as f32;
@@ -86,22 +91,16 @@ fn random_enemy_spec(wave: u32) -> (EnemyKind, f32, f32, Color, f32) {
             EnemyKind::MeleeRusher,
             120.0 + base * 8.0,
             30.0 + base * 2.0,
-            Color::srgb(0.8, 0.3, 0.3),
-            32.0,
         ),
         1 => (
             EnemyKind::SpeedBurster,
             200.0 + base * 6.0,
             18.0 + base,
-            Color::srgb(0.9, 0.6, 0.2),
-            24.0,
         ),
         _ => (
             EnemyKind::Splitter,
             140.0 + base * 6.0,
             40.0 + base * 2.0,
-            Color::srgb(0.85, 0.55, 0.25),
-            36.0,
         ),
     }
 }
