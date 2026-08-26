@@ -4,6 +4,7 @@ use bevy::ecs::message::Message;
 use bevy::prelude::*;
 
 use crate::game::enemy::{Enemy, EnemyKind};
+use crate::game::player::{Health, HitCooldown, Player, PLAYER_RADIUS};
 use crate::game::weapon::Projectile;
 use crate::game::GameState;
 
@@ -22,7 +23,7 @@ impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<EnemyDied>().add_systems(
             Update,
-            resolve_projectile_hits.run_if(in_state(GameState::InGame)),
+            (resolve_projectile_hits, contact_damage).run_if(in_state(GameState::InGame)),
         );
     }
 }
@@ -67,6 +68,45 @@ fn resolve_projectile_hits(
                 });
                 commands.entity(enemy_entity).despawn();
             }
+        }
+    }
+}
+
+/// Enemy contact damages the player, gated by a short invulnerability window.
+///
+/// Once the player's HP hits zero we transition to the Defeat state (one-life
+/// roguelike). Contact damage is `EnemyKind`-agnostic for now; per-kind contact
+/// stats can be tuned later.
+fn contact_damage(
+    time: Res<Time>,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut players: Query<(&Transform, &mut Health, &mut HitCooldown), With<Player>>,
+    enemies: Query<(&Transform, &Enemy), Without<Player>>,
+) {
+    let Ok((player_transform, mut health, mut hit_cooldown)) = players.single_mut() else {
+        return;
+    };
+
+    // Advance invulnerability even when not hit so it recovers over time.
+    hit_cooldown.0.tick(time.delta());
+
+    let player_pos = player_transform.translation.truncate();
+    for (enemy_transform, enemy) in &enemies {
+        let enemy_pos = enemy_transform.translation.truncate();
+        let combined = PLAYER_RADIUS + enemy.radius();
+        if player_pos.distance_squared(enemy_pos) > combined * combined {
+            continue;
+        }
+        // Already hurt this invulnerability window — skip.
+        if !hit_cooldown.0.finished() {
+            continue;
+        }
+        health.current -= 10.0;
+        hit_cooldown.0.reset();
+
+        if health.current <= 0.0 {
+            next_state.set(GameState::Defeat);
+            return;
         }
     }
 }

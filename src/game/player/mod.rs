@@ -11,6 +11,22 @@ pub const PLAYER_RADIUS: f32 = 18.0;
 #[derive(Component)]
 pub struct Player;
 
+/// The player's hit points. Damage comes from enemy contact (T7); healing and
+/// stat boosts come later from shop items (T9).
+#[derive(Component)]
+pub struct Health {
+    pub max: f32,
+    pub current: f32,
+}
+
+/// Invulnerability window after being hit, so contact damage doesn't tick
+/// every frame. Short enough to keep combat tense.
+const HIT_INVULNERABILITY: f32 = 0.6;
+
+/// Tracks the player's post-hit invulnerability timer.
+#[derive(Component)]
+pub struct HitCooldown(pub Timer);
+
 /// Plugin for the player: spawning and movement.
 pub struct PlayerPlugin;
 
@@ -37,6 +53,11 @@ fn spawn_player_if_absent(
     }
     commands.spawn((
         Player,
+        Health {
+            max: 100.0,
+            current: 100.0,
+        },
+        HitCooldown(Timer::from_seconds(HIT_INVULNERABILITY, TimerMode::Once)),
         Sprite {
             color: Color::srgb(0.3, 0.8, 0.4),
             custom_size: Some(Vec2::splat(PLAYER_RADIUS * 2.0)),
