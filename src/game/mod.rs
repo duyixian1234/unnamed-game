@@ -4,6 +4,7 @@ pub mod enemy;
 pub mod player;
 pub mod ui;
 pub mod waves;
+pub mod weapon;
 
 use bevy::prelude::*;
 
@@ -35,6 +36,7 @@ impl Plugin for GamePlugin {
             enemy::EnemyPlugin,
             player::PlayerPlugin,
             waves::WavesPlugin,
+            weapon::WeaponPlugin,
             UIPlugin,
         ));
     }
