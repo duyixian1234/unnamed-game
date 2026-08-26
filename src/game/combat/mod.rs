@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use crate::game::enemy::{Enemy, EnemyKind};
 use crate::game::player::{Health, HitCooldown, Player, PLAYER_RADIUS};
-use crate::game::weapon::Projectile;
+use crate::game::weapon::{MeleeHit, OrbitOrb, Projectile};
 use crate::game::GameState;
 
 /// Fired when an enemy dies, so other systems (e.g. economy) can react.
@@ -23,16 +23,41 @@ impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<EnemyDied>().add_systems(
             Update,
-            (resolve_projectile_hits, contact_damage).run_if(in_state(GameState::InGame)),
+            (resolve_projectile_hits, resolve_melee_hits, resolve_orb_hits, contact_damage)
+                .run_if(in_state(GameState::InGame)),
         );
     }
+}
+
+/// Apply damage to an enemy; despawn and emit `EnemyDied` (with splitter
+/// children) if it drops to zero health.
+fn apply_damage(
+    commands: &mut Commands,
+    death_writer: &mut MessageWriter<EnemyDied>,
+    enemy_entity: Entity,
+    enemy: &mut Enemy,
+    enemy_pos: Vec2,
+    amount: f32,
+) {
+    enemy.health -= amount;
+    if enemy.health > 0.0 {
+        return;
+    }
+    let kind = enemy.kind;
+    let split_depth = enemy.split_depth;
+    death_writer.write(EnemyDied {
+        entity: enemy_entity,
+        position: enemy_pos,
+        kind,
+    });
+    spawn_splitter_children(commands, enemy_pos, split_depth);
+    commands.entity(enemy_entity).despawn();
 }
 
 /// Collide piercing projectiles with enemies: apply damage and kill them.
 ///
 /// A projectile may pass through (pierce) multiple enemies but only strikes a
-/// given enemy once. Enemies at zero health are despawned and an `EnemyDied`
-/// message is written for downstream systems.
+/// given enemy once.
 fn resolve_projectile_hits(
     mut commands: Commands,
     mut death_writer: MessageWriter<EnemyDied>,
@@ -44,7 +69,6 @@ fn resolve_projectile_hits(
         let proj_radius = 8.0;
 
         for (enemy_entity, mut enemy, enemy_transform) in &mut enemies {
-            // Skip enemies this projectile already hit (pierce avoids re-hit).
             if projectile.hit_enemies.contains(&enemy_entity) {
                 continue;
             }
@@ -53,27 +77,81 @@ fn resolve_projectile_hits(
             if proj_pos.distance_squared(enemy_pos) > combined * combined {
                 continue;
             }
-
-            // Register the hit and apply damage.
             projectile.hit_enemies.push(enemy_entity);
-            enemy.health -= projectile.damage;
+            apply_damage(
+                &mut commands,
+                &mut death_writer,
+                enemy_entity,
+                &mut enemy,
+                enemy_pos,
+                projectile.damage,
+            );
+        }
+    }
+}
 
-            if enemy.health <= 0.0 {
-                let position = enemy_pos;
-                let kind = enemy.kind;
-                let split_depth = enemy.split_depth;
-                death_writer.write(EnemyDied {
-                    entity: enemy_entity,
-                    position,
-                    kind,
-                });
-                spawn_splitter_children(
-                    &mut commands,
-                    position,
-                    split_depth,
-                );
-                commands.entity(enemy_entity).despawn();
+/// Melee swing hitboxes damage every enemy they overlap once.
+fn resolve_melee_hits(
+    mut commands: Commands,
+    mut death_writer: MessageWriter<EnemyDied>,
+    mut melee_hits: Query<(&mut MeleeHit, &Transform)>,
+    mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<MeleeHit>>,
+) {
+    for (mut melee, melee_transform) in &mut melee_hits {
+        let melee_pos = melee_transform.translation.truncate();
+        let melee_radius = melee.radius;
+
+        for (enemy_entity, mut enemy, enemy_transform) in &mut enemies {
+            if melee.hit_enemies.contains(&enemy_entity) {
+                continue;
             }
+            let enemy_pos = enemy_transform.translation.truncate();
+            let combined = melee_radius + enemy.radius();
+            if melee_pos.distance_squared(enemy_pos) > combined * combined {
+                continue;
+            }
+            melee.hit_enemies.push(enemy_entity);
+            apply_damage(
+                &mut commands,
+                &mut death_writer,
+                enemy_entity,
+                &mut enemy,
+                enemy_pos,
+                melee.damage,
+            );
+        }
+    }
+}
+
+/// Orbiting orbs damage enemies they touch each frame.
+fn resolve_orb_hits(
+    mut commands: Commands,
+    mut death_writer: MessageWriter<EnemyDied>,
+    mut orbs: Query<(&mut OrbitOrb, &Transform)>,
+    mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<OrbitOrb>>,
+) {
+    for (mut orb, orb_transform) in &mut orbs {
+        let orb_pos = orb_transform.translation.truncate();
+        let orb_radius = 9.0;
+
+        for (enemy_entity, mut enemy, enemy_transform) in &mut enemies {
+            if orb.hit_enemies.contains(&enemy_entity) {
+                continue;
+            }
+            let enemy_pos = enemy_transform.translation.truncate();
+            let combined = orb_radius + enemy.radius();
+            if orb_pos.distance_squared(enemy_pos) > combined * combined {
+                continue;
+            }
+            orb.hit_enemies.push(enemy_entity);
+            apply_damage(
+                &mut commands,
+                &mut death_writer,
+                enemy_entity,
+                &mut enemy,
+                enemy_pos,
+                orb.damage,
+            );
         }
     }
 }
