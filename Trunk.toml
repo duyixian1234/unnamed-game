@@ -10,3 +10,10 @@ public_url = "/"
 [serve]
 address = "127.0.0.1"
 port = 8080
+
+# Bevy loads assets from the `assets/` directory (relative to the page root as
+# `/assets/...`). Trunk does not auto-detect this folder for this project, so we
+# declare it explicitly so the assets are copied into dist/ and served in dev.
+[[assets]]
+source = "assets"
+dist = "assets"

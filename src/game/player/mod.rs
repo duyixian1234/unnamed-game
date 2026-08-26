@@ -3,10 +3,14 @@
 use bevy::prelude::*;
 
 use crate::game::assets::{atlas_index, atlas_sprite, SpriteAssets, ATLAS_CELL};
+use crate::game::waves::{FIELD_HALF_HEIGHT, FIELD_HALF_WIDTH};
 use crate::game::GameState;
+use crate::MainCamera;
 
-pub const PLAYER_SPEED: f32 = 260.0;
-pub const PLAYER_RADIUS: f32 = 18.0;
+pub const PLAYER_SPEED: f32 = 320.0;
+/// Collision radius. The sprite is scaled up from the 128px atlas cell so the
+/// character reads clearly on screen.
+pub const PLAYER_RADIUS: f32 = 34.0;
 
 /// Marker for the player entity.
 #[derive(Component)]
@@ -58,7 +62,15 @@ impl Plugin for PlayerPlugin {
             OnEnter(GameState::InGame),
             spawn_player_if_absent.run_if(no_player_exists),
         )
-        .add_systems(Update, player_movement.run_if(in_state(GameState::InGame)));
+        .add_systems(
+            Update,
+            (
+                player_movement,
+                clamp_to_field,
+                camera_follow,
+            )
+                .run_if(in_state(GameState::InGame)),
+        );
     }
 }
 
@@ -122,4 +134,30 @@ fn player_movement(
     let delta = dir * PLAYER_SPEED * stats.speed_mult * time.delta_secs();
     transform.translation.x += delta.x;
     transform.translation.y += delta.y;
+}
+
+/// Keep the player inside the play field so they don't wander off into the
+/// void where enemies can't reach them.
+fn clamp_to_field(mut players: Query<&mut Transform, With<Player>>) {
+    for mut transform in &mut players {
+        transform.translation.x = transform.translation.x
+            .clamp(-(FIELD_HALF_WIDTH - PLAYER_RADIUS), FIELD_HALF_WIDTH - PLAYER_RADIUS);
+        transform.translation.y = transform.translation.y
+            .clamp(-(FIELD_HALF_HEIGHT - PLAYER_RADIUS), FIELD_HALF_HEIGHT - PLAYER_RADIUS);
+    }
+}
+
+/// Keep the main camera centered on the player so the action stays in view
+/// while the world is larger than the viewport.
+fn camera_follow(
+    players: Query<&Transform, With<Player>>,
+    mut cameras: Query<&mut Transform, (With<MainCamera>, Without<Player>)>,
+) {
+    let Ok(player) = players.single() else {
+        return;
+    };
+    for mut cam in &mut cameras {
+        cam.translation.x = player.translation.x;
+        cam.translation.y = player.translation.y;
+    }
 }

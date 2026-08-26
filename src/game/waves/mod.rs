@@ -145,9 +145,9 @@ fn spawn_from_edges(
     let (kind, speed, health) = random_enemy_spec(wave.number);
     let index = sprite_assets.enemy_index(kind);
     let size = match kind {
-        EnemyKind::MeleeRusher => 32.0,
-        EnemyKind::SpeedBurster => 24.0,
-        EnemyKind::Splitter => 36.0,
+        EnemyKind::MeleeRusher => 62.0,
+        EnemyKind::SpeedBurster => 48.0,
+        EnemyKind::Splitter => 70.0,
     };
 
     commands.spawn((

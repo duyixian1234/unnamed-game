@@ -1,6 +1,7 @@
 //! UI screens built on `bevy_ui` (HUD, menus, shop).
 
 pub mod end_screen;
+pub mod hud;
 pub mod main_menu;
 pub mod shop;
 
@@ -13,6 +14,7 @@ impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             end_screen::EndScreenPlugin,
+            hud::HudPlugin,
             main_menu::MainMenuPlugin,
             shop::ShopPlugin,
         ));

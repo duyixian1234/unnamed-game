@@ -30,9 +30,9 @@ pub struct Enemy {
 impl Enemy {
     pub fn radius(&self) -> f32 {
         match self.kind {
-            EnemyKind::MeleeRusher => 16.0,
-            EnemyKind::SpeedBurster => 12.0,
-            EnemyKind::Splitter => 18.0,
+            EnemyKind::MeleeRusher => 31.0,
+            EnemyKind::SpeedBurster => 24.0,
+            EnemyKind::Splitter => 35.0,
         }
     }
 

@@ -4,6 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>unnamed-game</title>
+    <!-- Copy the Bevy assets/ directory into the dist root so runtime asset
+         loads resolve to /assets/... in the browser build. -->
+    <link data-trunk rel="copy-dir" href="assets" />
     <style>
       html,
       body {

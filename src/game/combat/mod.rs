@@ -204,7 +204,7 @@ fn spawn_splitter_children(
             },
             atlas_sprite(sprite_assets, index),
             Transform::from_translation((position + offset).extend(0.0))
-                .with_scale(Vec3::splat(20.0 / ATLAS_CELL as f32)),
+                .with_scale(Vec3::splat(40.0 / ATLAS_CELL as f32)),
         ));
     }
 }
