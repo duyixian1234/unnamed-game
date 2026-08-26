@@ -10,6 +10,9 @@ edition = "2021"
 # keep WebGPU enabled and WebGL2 disabled so the browser build uses WebGPU.
 bevy = { version = "0.17", default-features = true }
 
+# Random positions for edge spawning and drop scatter.
+rand = "0.9"
+
 # Asset loading is deferred to later milestones; bevy_asset is part of default
 # features so we get a plain window for T1.
 
