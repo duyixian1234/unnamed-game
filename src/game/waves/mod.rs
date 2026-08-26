@@ -11,8 +11,10 @@ use crate::game::weapon::{MeleeHit, OrbitOrb, Projectile};
 use crate::game::GameState;
 
 /// Half-extents of the play field; enemies spawn just outside these edges.
-pub const FIELD_HALF_WIDTH: f32 = 900.0;
-pub const FIELD_HALF_HEIGHT: f32 = 560.0;
+/// Sized to match the visible world at camera scale 0.7 (1280x720 viewport ->
+/// ~896x504 world), so the player moves across a fixed, fully-visible screen.
+pub const FIELD_HALF_WIDTH: f32 = 448.0;
+pub const FIELD_HALF_HEIGHT: f32 = 252.0;
 
 /// Base time between enemy spawns within a wave (scales down as waves rise).
 const BASE_SPAWN_INTERVAL: f32 = 1.1;

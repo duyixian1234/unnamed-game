@@ -97,8 +97,14 @@ pub struct WeaponPlugin;
 
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::InGame), give_starting_weapons)
-            .add_systems(
+        app.add_systems(
+            OnEnter(GameState::InGame),
+            give_starting_weapons
+                // The player must exist before we attach weapon slots, otherwise
+                // a fresh run could give the loadout before the player spawns.
+                .after(crate::game::player::spawn_player_if_absent),
+        )
+        .add_systems(
                 Update,
                 (
                     auto_attack,

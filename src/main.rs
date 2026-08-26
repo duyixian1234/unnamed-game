@@ -7,7 +7,8 @@ use bevy::prelude::*;
 
 use crate::game::GamePlugin;
 
-/// Marks the single 2D camera that follows the player during play.
+/// Marks the single 2D camera. It stays fixed so the player moves across the
+/// screen (no camera-follow); the field is sized to match the visible area.
 #[derive(Component)]
 pub struct MainCamera;
 
@@ -32,13 +33,14 @@ fn setup(mut commands: Commands) {
     commands.spawn((MainCamera, Camera2d));
 }
 
-/// Zoom the main camera so the player and enemies render at a good size.
-/// Smaller `scale` = more zoomed in (0.62 keeps characters readable while still
-/// showing enough of the field). Runs after `setup` so the camera exists.
+/// Zoom the camera so characters read at a good size. The field
+/// (see FIELD_HALF_WIDTH/HEIGHT) is sized to match the visible area, so the
+/// player moves across a fixed screen without scrolling. Smaller `scale` =
+/// more zoomed in.
 fn zoom_camera(mut cameras: Query<&mut Projection, With<MainCamera>>) {
     for mut projection in &mut cameras {
         if let Projection::Orthographic(ortho) = &mut *projection {
-            ortho.scale = 0.62;
+            ortho.scale = 0.7;
         }
     }
 }

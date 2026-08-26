@@ -5,7 +5,6 @@ use bevy::prelude::*;
 use crate::game::assets::{atlas_index, atlas_sprite, SpriteAssets, ATLAS_CELL};
 use crate::game::waves::{FIELD_HALF_HEIGHT, FIELD_HALF_WIDTH};
 use crate::game::GameState;
-use crate::MainCamera;
 
 pub const PLAYER_SPEED: f32 = 320.0;
 /// Collision radius. The sprite is scaled up from the 128px atlas cell so the
@@ -64,12 +63,7 @@ impl Plugin for PlayerPlugin {
         )
         .add_systems(
             Update,
-            (
-                player_movement,
-                clamp_to_field,
-                camera_follow,
-            )
-                .run_if(in_state(GameState::InGame)),
+            (player_movement, clamp_to_field).run_if(in_state(GameState::InGame)),
         );
     }
 }
@@ -78,7 +72,9 @@ fn no_player_exists(players: Query<&Player>) -> bool {
     players.is_empty()
 }
 
-fn spawn_player_if_absent(
+/// Spawn the player once per run. Public so the weapon plugin can order its
+/// starting-loadout system to run after the player exists.
+pub fn spawn_player_if_absent(
     mut commands: Commands,
     sprite_assets: Res<SpriteAssets>,
     players: Query<(), With<Player>>,
@@ -144,20 +140,5 @@ fn clamp_to_field(mut players: Query<&mut Transform, With<Player>>) {
             .clamp(-(FIELD_HALF_WIDTH - PLAYER_RADIUS), FIELD_HALF_WIDTH - PLAYER_RADIUS);
         transform.translation.y = transform.translation.y
             .clamp(-(FIELD_HALF_HEIGHT - PLAYER_RADIUS), FIELD_HALF_HEIGHT - PLAYER_RADIUS);
-    }
-}
-
-/// Keep the main camera centered on the player so the action stays in view
-/// while the world is larger than the viewport.
-fn camera_follow(
-    players: Query<&Transform, With<Player>>,
-    mut cameras: Query<&mut Transform, (With<MainCamera>, Without<Player>)>,
-) {
-    let Ok(player) = players.single() else {
-        return;
-    };
-    for mut cam in &mut cameras {
-        cam.translation.x = player.translation.x;
-        cam.translation.y = player.translation.y;
     }
 }
