@@ -1,0 +1,12 @@
+# Trunk configuration for the wasm/browser build (ADR-0003).
+# `trunk serve` serves the app + auto-rebuilds; `trunk build --release` for a
+# dist artifact. The single index.html entrypoint builds the Bevy app.
+
+[build]
+target = "index.html"
+dist = "dist"
+public_url = "/"
+
+[serve]
+address = "127.0.0.1"
+port = 8080

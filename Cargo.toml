@@ -1,0 +1,21 @@
+[package]
+name = "unnamed-game"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Bevy 0.17 pinned (see CONTEXT.md -> Decisions, ADR-0001).
+# WebAssembly render backend = WebGPU (not WebGL2). We build from default
+# features (which include everything a window + 2D sprites need) but on wasm we
+# keep WebGPU enabled and WebGL2 disabled so the browser build uses WebGPU.
+bevy = { version = "0.17", default-features = true }
+
+# Asset loading is deferred to later milestones; bevy_asset is part of default
+# features so we get a plain window for T1.
+
+[profile.dev]
+# Slightly faster local iteration for the native loop.
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

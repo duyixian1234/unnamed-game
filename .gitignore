@@ -10,6 +10,9 @@ tools/*.tmp
 tools/out/
 *.png.tmp
 
+# Local build/setup scratch (logs, transient tool output)
+.setup/
+
 # Editor / OS
 .idea/
 .vscode/
