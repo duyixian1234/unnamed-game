@@ -18,6 +18,14 @@ pub struct EnemyDied {
     pub kind: EnemyKind,
 }
 
+/// Runs combat damage resolution before weapon hitboxes are expired, so a
+/// freshly spawned melee swing / orb can connect before it despawns.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CombatSet {
+    /// Resolve projectile/melee/orb damage against enemies.
+    ResolveDamage,
+}
+
 /// Plugin for combat resolution: hit detection, damage, and death.
 pub struct CombatPlugin;
 
@@ -26,6 +34,7 @@ impl Plugin for CombatPlugin {
         app.add_message::<EnemyDied>().add_systems(
             Update,
             (resolve_projectile_hits, resolve_melee_hits, resolve_orb_hits, contact_damage)
+                .in_set(CombatSet::ResolveDamage)
                 .run_if(in_state(GameState::InGame)),
         );
     }

@@ -3,6 +3,7 @@
 use bevy::math::Vec2;
 use bevy::prelude::*;
 
+use crate::game::combat::CombatSet;
 use crate::game::enemy::Enemy;
 use crate::game::player::{Player, PlayerStats};
 use crate::game::GameState;
@@ -61,13 +62,15 @@ pub struct Projectile {
 }
 
 /// A melee swing hitbox spawned briefly at the player; damages enemies it
-/// overlaps. Despawns after one frame of detection.
+/// overlaps. Lives long enough for combat resolution to run before it expires.
 #[derive(Component)]
 pub struct MeleeHit {
     pub damage: f32,
     /// Radius of the swing around the player.
     pub radius: f32,
     pub hit_enemies: Vec<Entity>,
+    /// How long the swing stays active; combat must resolve within this window.
+    pub lifetime: Timer,
 }
 
 /// An orb orbiting the player; damages enemies it touches.
@@ -100,8 +103,12 @@ impl Plugin for WeaponPlugin {
                 (
                     auto_attack,
                     move_projectiles,
-                    expire_melee_hits,
-                    update_orbs,
+                    // Orbs must move and clear their per-frame hit list before
+                    // combat resolves orb contact damage this frame.
+                    update_orbs.before(CombatSet::ResolveDamage),
+                    // Expire hitboxes only after combat damage has resolved, so
+                    // a just-spawned melee swing connects this frame.
+                    expire_melee_hits.after(CombatSet::ResolveDamage),
                 )
                     .run_if(in_state(GameState::InGame)),
             );
@@ -190,6 +197,7 @@ fn auto_attack(
                         damage: weapon.damage * stats.damage_mult,
                         radius,
                         hit_enemies: Vec::new(),
+                        lifetime: Timer::from_seconds(0.15, TimerMode::Once),
                     },
                     Sprite {
                         color: Color::srgba(1.0, 1.0, 1.0, 0.5),
@@ -234,13 +242,17 @@ fn move_projectiles(
     }
 }
 
-/// Melee hits last a single detection frame, then despawn.
+/// Melee hits last a short window (so combat can resolve), then despawn.
 fn expire_melee_hits(
+    time: Res<Time>,
     mut commands: Commands,
-    melee_hits: Query<(Entity, &MeleeHit), Without<Projectile>>,
+    mut melee_hits: Query<(Entity, &mut MeleeHit), Without<Projectile>>,
 ) {
-    for (entity, _) in &melee_hits {
-        commands.entity(entity).despawn();
+    for (entity, mut melee) in &mut melee_hits {
+        melee.lifetime.tick(time.delta());
+        if melee.lifetime.is_finished() {
+            commands.entity(entity).despawn();
+        }
     }
 }
 
@@ -269,15 +281,17 @@ fn update_orbs(
     // Ensure each OrbitingOrb weapon has an active orb; spawn if missing.
     let existing = orbs.iter().count() as i32;
     let mut needed = 0;
+    let mut orb_damage = 8.0;
     for (weapon, _) in &mut weapons {
         if weapon.kind == WeaponKind::OrbitingOrb {
             needed += 1;
+            orb_damage = weapon.damage;
         }
     }
     for _ in existing..needed {
         commands.spawn((
             OrbitOrb {
-                damage: 8.0 * stats.damage_mult,
+                damage: orb_damage * stats.damage_mult,
                 angle: 0.0,
                 angular_speed: 2.5,
                 radius: 70.0,
