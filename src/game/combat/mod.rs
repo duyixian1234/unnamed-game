@@ -98,7 +98,7 @@ fn contact_damage(
             continue;
         }
         // Already hurt this invulnerability window — skip.
-        if !hit_cooldown.0.finished() {
+        if !hit_cooldown.0.is_finished() {
             continue;
         }
         health.current -= 10.0;
