@@ -2,6 +2,7 @@
 
 pub mod assets;
 pub mod audio;
+pub mod background;
 pub mod keyboard;
 pub mod render;
 pub mod ui;
@@ -20,6 +21,7 @@ impl Plugin for AppPlugin {
         app.add_plugins((
             assets::AssetsPlugin,
             audio::SfxPlugin,
+            background::BackgroundPlugin,
             render::RenderPlugin,
             keyboard::KeyboardIntentPlugin,
             ui::UIPlugin,
