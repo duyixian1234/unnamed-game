@@ -3,7 +3,8 @@
 use bevy::math::Vec2;
 use bevy::prelude::*;
 
-use crate::combat::{circle_hits_enemy, apply_damage, CombatSet};
+use crate::combat::{apply_damage, circle_hits_enemy, CombatSet};
+use crate::damage::{DamageSource, DamageStats, WeaponSlot};
 use crate::enemy::{Enemy, Knockback};
 use crate::player::{Player, PlayerStats};
 use crate::upgrade::Evolved;
@@ -37,9 +38,22 @@ impl WeaponKind {
         match self {
             WeaponKind::PiercingProjectile => 80.0,
             WeaponKind::MeleeSwing => 150.0,
-            WeaponKind::OrbitingOrb => 40.0,
+            WeaponKind::OrbitingOrb => 180.0,
         }
     }
+}
+
+/// The Weapon chosen for the current Run. The selection remains available on
+/// end screens so "Play Again" can focus the previous choice.
+#[derive(Resource, Debug, Default)]
+pub struct StartingWeapon {
+    pub selected: Option<WeaponKind>,
+}
+
+/// Confirms the Weapon used for a new Run.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct StartingWeaponSelected {
+    pub kind: WeaponKind,
 }
 
 /// A single equipped weapon. Lives on a child entity (a "slot") of the player,
@@ -59,17 +73,19 @@ pub struct Weapon {
     pub orbit_speed: f32,
     /// Orbit radius around the player; used when kind == OrbitingOrb.
     pub orbit_radius: f32,
+    /// Active only after an evolved orb explodes.
+    pub orb_respawn: Option<Timer>,
 }
 
 impl Weapon {
     pub fn new(kind: WeaponKind) -> Self {
         let (interval, damage, projectile_speed, range) = match kind {
-            WeaponKind::PiercingProjectile => (0.8, 10.0, 420.0, 900.0),
-            WeaponKind::MeleeSwing => (0.9, 25.0, 0.0, 90.0),
-            WeaponKind::OrbitingOrb => (0.0, 8.0, 0.0, 0.0),
+            WeaponKind::PiercingProjectile => (0.6, 24.0, 420.0, 900.0),
+            WeaponKind::MeleeSwing => (0.7, 40.0, 0.0, 105.0),
+            WeaponKind::OrbitingOrb => (0.0, 70.0, 0.0, 0.0),
         };
         let (orbit_speed, orbit_radius) = match kind {
-            WeaponKind::OrbitingOrb => (2.5, 70.0),
+            WeaponKind::OrbitingOrb => (10.0, 100.0),
             _ => (0.0, 0.0),
         };
         Self {
@@ -81,6 +97,7 @@ impl Weapon {
             knockback_mult: 1.0,
             orbit_speed,
             orbit_radius,
+            orb_respawn: None,
         }
     }
 
@@ -93,6 +110,7 @@ impl Weapon {
 /// A projectile fired by a weapon; pierces through enemies until it expires.
 #[derive(Component)]
 pub struct Projectile {
+    pub source: DamageSource,
     pub damage: f32,
     /// Knockback impulse applied to enemies on hit.
     pub knockback: f32,
@@ -115,25 +133,43 @@ pub struct SplitsOnHit;
 #[derive(Component)]
 pub struct BomberOrb;
 
+/// Short-lived presentation hook for the Bomber Orb's real AOE.
+#[derive(Component)]
+pub struct BomberExplosion {
+    pub radius: f32,
+    pub lifetime: Timer,
+}
+
 /// The Whirlwind evolution's persistent blade: follows the player and damages
 /// every enemy in reach continuously (per-enemy re-hit cooldown), replacing
 /// the melee swing's discrete rhythm entirely.
 #[derive(Component)]
 pub struct Whirlwind {
+    pub source: DamageSource,
     pub damage: f32,
     pub knockback: f32,
     /// Radius of the blade reach around the player.
     pub radius: f32,
     /// Per-enemy re-hit cooldowns, so "continuous" does not mean per-frame.
     pub hit_cooldowns: Vec<(Entity, Timer)>,
+    /// Presentation pulse synchronized to the 0.4 second damage rhythm.
+    pub pulse: Timer,
 }
 
 /// Seconds before the whirlwind can strike the same enemy again.
-const WHIRLWIND_REHIT: f32 = 0.4;
+pub const WHIRLWIND_REHIT: f32 = 0.4;
 /// Extra knockback on whirlwind strikes (Lv6: knockback boost).
 const WHIRLWIND_KNOCKBACK_BONUS: f32 = 1.25;
 /// Radius of the Bomber Orb's contact explosion.
-const BOMBER_AOE_RADIUS: f32 = 90.0;
+pub const BOMBER_AOE_RADIUS: f32 = 90.0;
+/// Seconds before an orb may damage the same enemy again.
+pub const ORB_REHIT: f32 = 0.25;
+/// Seconds before an exploded Bomber Orb returns.
+pub const BOMBER_RESPAWN: f32 = 0.6;
+/// Bomber Orb AOE damage multiplier.
+const BOMBER_AOE_DAMAGE_MULTIPLIER: f32 = 2.0;
+/// Collision radius of an orbiting orb.
+pub const ORB_HIT_RADIUS: f32 = 18.0;
 /// Damage fraction each Splitshot shard inherits.
 const SHARD_DAMAGE_FRACTION: f32 = 0.5;
 /// Shard lifetime (short range); at base speed that is ~150 units.
@@ -145,6 +181,7 @@ const SHARD_FAN_ANGLE: f32 = 0.35;
 /// overlaps. Lives long enough for combat resolution to run before it expires.
 #[derive(Component)]
 pub struct MeleeHit {
+    pub source: DamageSource,
     pub damage: f32,
     /// Knockback impulse applied to enemies on hit.
     pub knockback: f32,
@@ -158,6 +195,7 @@ pub struct MeleeHit {
 /// An orb orbiting the player; damages enemies it touches.
 #[derive(Component)]
 pub struct OrbitOrb {
+    pub source: DamageSource,
     pub damage: f32,
     /// Knockback impulse applied to enemies on hit (each frame while touching).
     pub knockback: f32,
@@ -167,8 +205,10 @@ pub struct OrbitOrb {
     pub angular_speed: f32,
     /// Orbit radius around the player.
     pub radius: f32,
-    /// Enemies hit this tick, to avoid multi-hitting the same enemy per frame.
+    /// Enemies hit this frame; Bomber Orb uses this to detect contact.
     pub hit_enemies: Vec<Entity>,
+    /// Per-enemy cooldowns make contact damage independent of frame rate.
+    pub hit_cooldowns: Vec<(Entity, Timer)>,
 }
 
 /// Marker added to the player once its weapon loadout has been spawned, so we
@@ -181,67 +221,77 @@ pub struct WeaponPlugin;
 
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            OnEnter(GameState::InGame),
-            give_starting_weapons
-                // The player must exist before we attach weapon slots, otherwise
-                // a fresh run could give the loadout before the player spawns.
-                .after(crate::player::spawn_player_if_absent),
-        )
-        .add_systems(
-            Update,
-            (
-                auto_attack,
-                move_projectiles,
-                // Orbs must move and clear their per-frame hit list before
-                // combat resolves orb contact damage this frame.
-                update_orbs.before(CombatSet::ResolveDamage),
-                // The whirlwind blade must be positioned/synced before damage
-                // resolution; its hits resolve after combat like the others.
-                update_whirlwind.before(CombatSet::ResolveDamage),
-                // Expire hitboxes only after combat damage has resolved, so
-                // a just-spawned melee swing connects this frame.
-                expire_melee_hits.after(CombatSet::ResolveDamage),
-                // Evolution behaviors resolve after core combat so their
-                // triggers (first hit / orb contact) are already recorded.
-                (
-                    splitshot_on_first_hit,
-                    bomber_orb_explosions,
-                    resolve_whirlwind_hits,
-                )
-                    .after(CombatSet::ResolveDamage),
+        app.init_resource::<StartingWeapon>()
+            .add_message::<StartingWeaponSelected>()
+            .add_systems(
+                Update,
+                select_starting_weapon.run_if(in_state(GameState::StartingWeaponChoice)),
             )
-                .run_if(in_state(GameState::InGame)),
-        );
+            .add_systems(
+                OnEnter(GameState::InGame),
+                give_starting_weapons
+                    // The player must exist before we attach weapon slots, otherwise
+                    // a fresh run could give the loadout before the player spawns.
+                    .after(crate::player::spawn_player_if_absent),
+            )
+            .add_systems(
+                Update,
+                (
+                    auto_attack,
+                    move_projectiles,
+                    // Orbs must move and clear their per-frame hit list before
+                    // combat resolves orb contact damage this frame.
+                    update_orbs.before(CombatSet::ResolveDamage),
+                    // The whirlwind blade must be positioned/synced before damage
+                    // resolution; its hits resolve after combat like the others.
+                    update_whirlwind.before(CombatSet::ResolveDamage),
+                    // Expire hitboxes only after combat damage has resolved, so
+                    // a just-spawned melee swing connects this frame.
+                    expire_melee_hits.after(CombatSet::ResolveDamage),
+                    // Evolution behaviors resolve after core combat so their
+                    // triggers (first hit / orb contact) are already recorded.
+                    (
+                        splitshot_on_first_hit,
+                        bomber_orb_explosions,
+                        resolve_whirlwind_hits,
+                    )
+                        .after(CombatSet::ResolveDamage),
+                    expire_bomber_explosions,
+                )
+                    .run_if(in_state(GameState::InGame)),
+            );
     }
 }
 
-/// Hand the player a starting loadout (one of each weapon kind) when a run
-/// begins. Slots are child entities so up to `MAX_WEAPON_SLOTS` can be held.
-#[allow(clippy::type_complexity)] // three disambiguation filters on the slot query
+fn select_starting_weapon(
+    mut selections: MessageReader<StartingWeaponSelected>,
+    mut starting_weapon: ResMut<StartingWeapon>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if let Some(selection) = selections.read().next() {
+        starting_weapon.selected = Some(selection.kind);
+        next_state.set(GameState::InGame);
+    }
+}
+
+/// Hand the player the selected starting Weapon when a Run begins.
 fn give_starting_weapons(
     mut commands: Commands,
+    starting_weapon: Res<StartingWeapon>,
     players: Query<(Entity, &Transform), (With<Player>, Without<WeaponLoadout>)>,
 ) {
+    let Some(kind) = starting_weapon.selected else {
+        return;
+    };
     for (player, player_transform) in &players {
-        let kinds = [
-            WeaponKind::PiercingProjectile,
-            WeaponKind::MeleeSwing,
-            WeaponKind::OrbitingOrb,
-        ];
-        debug_assert!(
-            kinds.len() <= MAX_WEAPON_SLOTS,
-            "starting loadout exceeds MAX_WEAPON_SLOTS"
-        );
-        for kind in kinds {
-            let slot = commands
-                .spawn((
-                    Weapon::new(kind),
-                    Transform::from_translation(player_transform.translation),
-                ))
-                .id();
-            commands.entity(player).add_child(slot);
-        }
+        let slot = commands
+            .spawn((
+                Weapon::new(kind),
+                WeaponSlot(0),
+                Transform::from_translation(player_transform.translation),
+            ))
+            .id();
+        commands.entity(player).add_child(slot);
         commands.entity(player).insert(WeaponLoadout);
     }
 }
@@ -252,7 +302,7 @@ fn auto_attack(
     time: Res<Time>,
     mut commands: Commands,
     players: Query<(&Transform, &PlayerStats), With<Player>>,
-    mut weapons: Query<(&mut Weapon, Option<&Evolved>), Without<Player>>,
+    mut weapons: Query<(&mut Weapon, &WeaponSlot, Option<&Evolved>), Without<Player>>,
     enemies: Query<(&Transform, &Enemy), Without<Player>>,
 ) {
     let Ok((player_transform, stats)) = players.single() else {
@@ -260,8 +310,12 @@ fn auto_attack(
     };
     let player_pos = player_transform.translation.truncate();
 
-    for (mut weapon, evolved) in &mut weapons {
+    for (mut weapon, slot, evolved) in &mut weapons {
         let evolved = evolved.is_some();
+        let source = DamageSource::Weapon {
+            slot: *slot,
+            kind: weapon.kind,
+        };
         // Orbiting orbs are persistent; handled by update_orbs. Advance their
         // cooldown too so freshly added orbs spawn immediately.
         if weapon.kind == WeaponKind::OrbitingOrb {
@@ -283,6 +337,7 @@ fn auto_attack(
                 }
                 let mut projectile = commands.spawn((
                     Projectile {
+                        source,
                         damage: weapon.damage * stats.damage_mult,
                         knockback: weapon.knockback_impulse(),
                         speed: weapon.projectile_speed,
@@ -322,6 +377,7 @@ fn auto_attack(
                 let radius = weapon.range;
                 commands.spawn((
                     MeleeHit {
+                        source,
                         damage: weapon.damage * stats.damage_mult,
                         knockback: weapon.knockback_impulse(),
                         radius,
@@ -391,7 +447,10 @@ fn update_orbs(
     mut commands: Commands,
     time: Res<Time>,
     players: Query<(&Transform, &PlayerStats), With<Player>>,
-    weapons: Query<(&Weapon, Option<&Evolved>), (Without<Player>, Without<OrbitOrb>)>,
+    mut weapons: Query<
+        (&mut Weapon, &WeaponSlot, Option<&Evolved>),
+        (Without<Player>, Without<OrbitOrb>),
+    >,
     mut orbs: Query<(Entity, &mut OrbitOrb, &mut Transform), (Without<Player>, Without<Weapon>)>,
 ) {
     let Ok((player_transform, stats)) = players.single() else {
@@ -400,40 +459,65 @@ fn update_orbs(
     let player_pos = player_transform.translation;
 
     // Gather the orbiting weapon's current spec (single slot of this kind).
-    let mut orb_spec: Option<(&Weapon, bool)> = None;
-    for (weapon, evolved) in &weapons {
+    let mut orb_spec = None;
+    for (mut weapon, slot, evolved) in &mut weapons {
         if weapon.kind == WeaponKind::OrbitingOrb {
-            orb_spec = Some((weapon, evolved.is_some()));
+            if let Some(timer) = &mut weapon.orb_respawn {
+                timer.tick(time.delta());
+                if timer.is_finished() {
+                    weapon.orb_respawn = None;
+                }
+            }
+            orb_spec = Some((
+                weapon.damage * stats.damage_mult,
+                weapon.knockback_impulse(),
+                weapon.orbit_speed,
+                weapon.orbit_radius,
+                DamageSource::Weapon {
+                    slot: *slot,
+                    kind: weapon.kind,
+                },
+                evolved.is_some(),
+                weapon.orb_respawn.is_none(),
+            ));
         }
     }
 
     // Rotate existing orbs around the player and re-sync upgradeable stats.
     for (_, mut orb, mut transform) in &mut orbs {
-        if let Some((weapon, _)) = orb_spec {
-            orb.damage = weapon.damage * stats.damage_mult;
-            orb.knockback = weapon.knockback_impulse();
-            orb.angular_speed = weapon.orbit_speed;
-            orb.radius = weapon.orbit_radius;
+        if let Some((damage, knockback, angular_speed, radius, source, _, _)) = orb_spec {
+            orb.damage = damage;
+            orb.knockback = knockback;
+            orb.angular_speed = angular_speed;
+            orb.radius = radius;
+            orb.source = source;
         }
         orb.angle += orb.angular_speed * time.delta_secs();
         let offset = Vec2::from_angle(orb.angle) * orb.radius;
         transform.translation = player_pos.truncate().extend(0.0) + offset.extend(0.0);
-        // Clear per-frame hit list so an orb can re-hit enemies each rotation.
+        for (_, timer) in &mut orb.hit_cooldowns {
+            timer.tick(time.delta());
+        }
+        orb.hit_cooldowns
+            .retain(|(entity, _)| commands.get_entity(*entity).is_ok());
+        // Contact markers last one frame; cooldowns persist.
         orb.hit_enemies.clear();
     }
 
     // Ensure the OrbitingOrb weapon has an active orb; spawn if missing.
     let existing = orbs.iter().count() as i32;
-    if let Some((weapon, evolved)) = orb_spec {
-        if existing == 0 {
+    if let Some((damage, knockback, angular_speed, radius, source, evolved, can_spawn)) = orb_spec {
+        if existing == 0 && can_spawn {
             let mut orb = commands.spawn((
                 OrbitOrb {
-                    damage: weapon.damage * stats.damage_mult,
-                    knockback: weapon.knockback_impulse(),
+                    source,
+                    damage,
+                    knockback,
                     angle: 0.0,
-                    angular_speed: weapon.orbit_speed,
-                    radius: weapon.orbit_radius,
+                    angular_speed,
+                    radius,
                     hit_enemies: Vec::new(),
+                    hit_cooldowns: Vec::new(),
                 },
                 Transform::from_translation(player_pos),
             ));
@@ -450,7 +534,7 @@ fn update_orbs(
 fn update_whirlwind(
     mut commands: Commands,
     players: Query<(&Transform, &PlayerStats), With<Player>>,
-    melee: Query<(&Weapon, Option<&Evolved>), Without<Player>>,
+    melee: Query<(&Weapon, &WeaponSlot, Option<&Evolved>), Without<Player>>,
     mut whirlwinds: Query<(Entity, &mut Whirlwind, &mut Transform), Without<Player>>,
 ) {
     let Ok((player_transform, stats)) = players.single() else {
@@ -458,31 +542,38 @@ fn update_whirlwind(
     };
     let player_pos = player_transform.translation;
 
-    let spec = melee.iter().find_map(|(weapon, evolved)| {
+    let spec = melee.iter().find_map(|(weapon, slot, evolved)| {
         (weapon.kind == WeaponKind::MeleeSwing && evolved.is_some()).then(|| {
             (
+                DamageSource::Weapon {
+                    slot: *slot,
+                    kind: weapon.kind,
+                },
                 weapon.damage * stats.damage_mult,
                 weapon.knockback_impulse() * WHIRLWIND_KNOCKBACK_BONUS,
                 weapon.range,
             )
         })
     });
-    let Some((damage, knockback, radius)) = spec else {
+    let Some((source, damage, knockback, radius)) = spec else {
         return;
     };
 
     if let Ok((_, mut whirlwind, mut transform)) = whirlwinds.single_mut() {
         whirlwind.damage = damage;
+        whirlwind.source = source;
         whirlwind.knockback = knockback;
         whirlwind.radius = radius;
         transform.translation = player_pos;
     } else {
         commands.spawn((
             Whirlwind {
+                source,
                 damage,
                 knockback,
                 radius,
                 hit_cooldowns: Vec::new(),
+                pulse: Timer::from_seconds(WHIRLWIND_REHIT, TimerMode::Repeating),
             },
             Transform::from_translation(player_pos),
         ));
@@ -497,6 +588,7 @@ fn resolve_whirlwind_hits(
     mut death_writer: MessageWriter<crate::combat::EnemyDied>,
     mut spawn_writer: MessageWriter<crate::enemy::EnemySpawned>,
     mut hit_writer: MessageWriter<crate::combat::HitSfx>,
+    mut damage_stats: ResMut<DamageStats>,
     mut whirlwinds: Query<(&mut Whirlwind, &Transform)>,
     mut enemies: Query<
         (Entity, &mut Enemy, &Transform, &mut Knockback),
@@ -505,6 +597,7 @@ fn resolve_whirlwind_hits(
 ) {
     for (mut whirlwind, whirlwind_transform) in &mut whirlwinds {
         let whirlwind_pos = whirlwind_transform.translation.truncate();
+        whirlwind.pulse.tick(time.delta());
 
         for (_, timer) in whirlwind.hit_cooldowns.iter_mut() {
             timer.tick(time.delta());
@@ -537,6 +630,8 @@ fn resolve_whirlwind_hits(
                 &mut enemy,
                 enemy_pos,
                 whirlwind.damage,
+                whirlwind.source,
+                &mut damage_stats,
             );
             let dir = (enemy_pos - whirlwind_pos).normalize_or_zero();
             knockback.0 += dir * whirlwind.knockback;
@@ -568,9 +663,11 @@ fn splitshot_on_first_hit(
         }
         commands.entity(entity).remove::<SplitsOnHit>();
         for i in [-1, 0, 1] {
-            let direction = Vec2::from_angle(SHARD_FAN_ANGLE * i as f32).rotate(projectile.direction);
+            let direction =
+                Vec2::from_angle(SHARD_FAN_ANGLE * i as f32).rotate(projectile.direction);
             commands.spawn((
                 Projectile {
+                    source: projectile.source,
                     damage: projectile.damage * SHARD_DAMAGE_FRACTION,
                     knockback: projectile.knockback,
                     speed: projectile.speed,
@@ -592,6 +689,8 @@ fn bomber_orb_explosions(
     mut death_writer: MessageWriter<crate::combat::EnemyDied>,
     mut spawn_writer: MessageWriter<crate::enemy::EnemySpawned>,
     mut hit_writer: MessageWriter<crate::combat::HitSfx>,
+    mut damage_stats: ResMut<DamageStats>,
+    mut weapons: Query<(&WeaponSlot, &mut Weapon), Without<OrbitOrb>>,
     orbs: Query<(Entity, &OrbitOrb, &Transform), With<BomberOrb>>,
     mut enemies: Query<
         (Entity, &mut Enemy, &Transform, &mut Knockback),
@@ -604,13 +703,11 @@ fn bomber_orb_explosions(
         }
         let orb_pos = orb_transform.translation.truncate();
 
-        // Collect AOE victims first (skipping the already-hit contact enemy)
-        // so the mutable enemy query is not held across damage application.
+        // Collect AOE victims first so the mutable enemy query is not held
+        // across damage application. The contact target receives both the
+        // direct hit and the explosion.
         let mut victims: Vec<(Entity, Vec2)> = Vec::new();
         for (enemy_entity, enemy, enemy_transform, _) in &enemies {
-            if orb.hit_enemies.contains(&enemy_entity) {
-                continue;
-            }
             let enemy_pos = enemy_transform.translation.truncate();
             if circle_hits_enemy(orb_pos, BOMBER_AOE_RADIUS, enemy_pos, &enemy) {
                 victims.push((enemy_entity, enemy_pos));
@@ -628,12 +725,41 @@ fn bomber_orb_explosions(
                 victim,
                 &mut enemy,
                 victim_pos,
-                orb.damage,
+                orb.damage * BOMBER_AOE_DAMAGE_MULTIPLIER,
+                orb.source,
+                &mut damage_stats,
             );
             let dir = (victim_pos - orb_pos).normalize_or_zero();
             knockback.0 += dir * orb.knockback;
         }
-        // The weapon slot remains, so update_orbs respawns the orb next frame.
+        commands.spawn((
+            BomberExplosion {
+                radius: BOMBER_AOE_RADIUS,
+                lifetime: Timer::from_seconds(0.22, TimerMode::Once),
+            },
+            Transform::from_translation(orb_transform.translation),
+        ));
+        if let DamageSource::Weapon { slot, .. } = orb.source {
+            if let Some((_, mut weapon)) = weapons
+                .iter_mut()
+                .find(|(candidate, _)| **candidate == slot)
+            {
+                weapon.orb_respawn = Some(Timer::from_seconds(BOMBER_RESPAWN, TimerMode::Once));
+            }
+        }
         commands.entity(orb_entity).despawn();
+    }
+}
+
+fn expire_bomber_explosions(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut explosions: Query<(Entity, &mut BomberExplosion)>,
+) {
+    for (entity, mut explosion) in &mut explosions {
+        explosion.lifetime.tick(time.delta());
+        if explosion.lifetime.is_finished() {
+            commands.entity(entity).despawn();
+        }
     }
 }

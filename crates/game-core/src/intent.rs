@@ -22,3 +22,7 @@ pub struct PlayerMoveIntent {
 pub struct PurchaseRequest {
     pub item_index: usize,
 }
+
+pub(crate) fn reset_move_intent(mut intent: bevy::prelude::ResMut<PlayerMoveIntent>) {
+    intent.dir = Vec2::ZERO;
+}

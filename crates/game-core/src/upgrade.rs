@@ -13,7 +13,7 @@ use bevy::ecs::message::Message;
 use bevy::prelude::*;
 
 use crate::player::Player;
-use crate::weapon::{Weapon, WeaponKind};
+use crate::weapon::{StartingWeapon, Weapon, WeaponKind};
 use crate::GameState;
 
 /// One pick on a weapon's path: a short display label plus the stat
@@ -56,15 +56,9 @@ impl Evolution {
     /// Description of the behavior change.
     pub fn description(self) -> &'static str {
         match self {
-            Evolution::Whirlwind => {
-                "刀刃持续环绕自身旋转，全方位连续命中，移动不打断攻击"
-            }
-            Evolution::Splitshot => {
-                "首次命中后分裂为 3 枚短程扇形弹片（50% 伤害）"
-            }
-            Evolution::BomberOrb => {
-                "球体接触敌人时爆炸（小范围 AOE），随后立刻重生"
-            }
+            Evolution::Whirlwind => "刀刃持续环绕自身旋转，全方位连续命中，移动不打断攻击",
+            Evolution::Splitshot => "首次命中后分裂为 3 枚短程扇形弹片（50% 伤害）",
+            Evolution::BomberOrb => "球体接触敌人时爆炸（小范围 AOE），随后立刻重生",
         }
     }
 }
@@ -84,20 +78,44 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
         kind: WeaponKind::MeleeSwing,
         levels: [
             [
-                UpgradeOption { label: "伤害 +25%", mods: &[StatMod::Damage(1.25)] },
-                UpgradeOption { label: "范围 +20%", mods: &[StatMod::Range(1.2)] },
+                UpgradeOption {
+                    label: "伤害 +25%",
+                    mods: &[StatMod::Damage(1.25)],
+                },
+                UpgradeOption {
+                    label: "范围 +20%",
+                    mods: &[StatMod::Range(1.2)],
+                },
             ],
             [
-                UpgradeOption { label: "冷却 -15%", mods: &[StatMod::Cooldown(0.85)] },
-                UpgradeOption { label: "击退 +50%", mods: &[StatMod::Knockback(1.5)] },
+                UpgradeOption {
+                    label: "冷却 -15%",
+                    mods: &[StatMod::Cooldown(0.85)],
+                },
+                UpgradeOption {
+                    label: "击退 +50%",
+                    mods: &[StatMod::Knockback(1.5)],
+                },
             ],
             [
-                UpgradeOption { label: "伤害 +25%", mods: &[StatMod::Damage(1.25)] },
-                UpgradeOption { label: "冷却 -15%", mods: &[StatMod::Cooldown(0.85)] },
+                UpgradeOption {
+                    label: "伤害 +25%",
+                    mods: &[StatMod::Damage(1.25)],
+                },
+                UpgradeOption {
+                    label: "冷却 -15%",
+                    mods: &[StatMod::Cooldown(0.85)],
+                },
             ],
             [
-                UpgradeOption { label: "范围 +20%", mods: &[StatMod::Range(1.2)] },
-                UpgradeOption { label: "伤害 +30%", mods: &[StatMod::Damage(1.3)] },
+                UpgradeOption {
+                    label: "范围 +20%",
+                    mods: &[StatMod::Range(1.2)],
+                },
+                UpgradeOption {
+                    label: "伤害 +30%",
+                    mods: &[StatMod::Damage(1.3)],
+                },
             ],
         ],
         evolution: Evolution::Whirlwind,
@@ -107,20 +125,44 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
         kind: WeaponKind::PiercingProjectile,
         levels: [
             [
-                UpgradeOption { label: "伤害 +25%", mods: &[StatMod::Damage(1.25)] },
-                UpgradeOption { label: "冷却 -15%", mods: &[StatMod::Cooldown(0.85)] },
+                UpgradeOption {
+                    label: "伤害 +25%",
+                    mods: &[StatMod::Damage(1.25)],
+                },
+                UpgradeOption {
+                    label: "冷却 -15%",
+                    mods: &[StatMod::Cooldown(0.85)],
+                },
             ],
             [
-                UpgradeOption { label: "弹速 +20%", mods: &[StatMod::ProjectileSpeed(1.2)] },
-                UpgradeOption { label: "射程 +25%", mods: &[StatMod::Range(1.25)] },
+                UpgradeOption {
+                    label: "弹速 +20%",
+                    mods: &[StatMod::ProjectileSpeed(1.2)],
+                },
+                UpgradeOption {
+                    label: "射程 +25%",
+                    mods: &[StatMod::Range(1.25)],
+                },
             ],
             [
-                UpgradeOption { label: "伤害 +30%", mods: &[StatMod::Damage(1.3)] },
-                UpgradeOption { label: "冷却 -15%", mods: &[StatMod::Cooldown(0.85)] },
+                UpgradeOption {
+                    label: "伤害 +30%",
+                    mods: &[StatMod::Damage(1.3)],
+                },
+                UpgradeOption {
+                    label: "冷却 -15%",
+                    mods: &[StatMod::Cooldown(0.85)],
+                },
             ],
             [
-                UpgradeOption { label: "弹速 +15%", mods: &[StatMod::ProjectileSpeed(1.15)] },
-                UpgradeOption { label: "伤害 +25%", mods: &[StatMod::Damage(1.25)] },
+                UpgradeOption {
+                    label: "弹速 +15%",
+                    mods: &[StatMod::ProjectileSpeed(1.15)],
+                },
+                UpgradeOption {
+                    label: "伤害 +25%",
+                    mods: &[StatMod::Damage(1.25)],
+                },
             ],
         ],
         evolution: Evolution::Splitshot,
@@ -130,20 +172,44 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
         kind: WeaponKind::OrbitingOrb,
         levels: [
             [
-                UpgradeOption { label: "伤害 +25%", mods: &[StatMod::Damage(1.25)] },
-                UpgradeOption { label: "环绕速度 +20%", mods: &[StatMod::OrbitSpeed(1.2)] },
+                UpgradeOption {
+                    label: "伤害 +25%",
+                    mods: &[StatMod::Damage(1.25)],
+                },
+                UpgradeOption {
+                    label: "环绕速度 +20%",
+                    mods: &[StatMod::OrbitSpeed(1.2)],
+                },
             ],
             [
-                UpgradeOption { label: "环绕半径 +25%", mods: &[StatMod::OrbitRadius(1.25)] },
-                UpgradeOption { label: "伤害 +25%", mods: &[StatMod::Damage(1.25)] },
+                UpgradeOption {
+                    label: "环绕半径 +25%",
+                    mods: &[StatMod::OrbitRadius(1.25)],
+                },
+                UpgradeOption {
+                    label: "伤害 +25%",
+                    mods: &[StatMod::Damage(1.25)],
+                },
             ],
             [
-                UpgradeOption { label: "伤害 +25%", mods: &[StatMod::Damage(1.25)] },
-                UpgradeOption { label: "环绕半径 +20%", mods: &[StatMod::OrbitRadius(1.2)] },
+                UpgradeOption {
+                    label: "伤害 +25%",
+                    mods: &[StatMod::Damage(1.25)],
+                },
+                UpgradeOption {
+                    label: "环绕半径 +20%",
+                    mods: &[StatMod::OrbitRadius(1.2)],
+                },
             ],
             [
-                UpgradeOption { label: "环绕速度 +25%", mods: &[StatMod::OrbitSpeed(1.25)] },
-                UpgradeOption { label: "伤害 +30%", mods: &[StatMod::Damage(1.3)] },
+                UpgradeOption {
+                    label: "环绕速度 +25%",
+                    mods: &[StatMod::OrbitSpeed(1.25)],
+                },
+                UpgradeOption {
+                    label: "伤害 +30%",
+                    mods: &[StatMod::Damage(1.3)],
+                },
             ],
         ],
         evolution: Evolution::BomberOrb,
@@ -202,7 +268,7 @@ impl Plugin for UpgradePlugin {
                 (apply_upgrades, auto_advance_when_maxed)
                     .run_if(in_state(GameState::UpgradeChoice)),
             )
-            .add_systems(OnEnter(GameState::MainMenu), reset_levels);
+            .add_systems(OnEnter(GameState::StartingWeaponChoice), reset_levels);
     }
 }
 
@@ -230,10 +296,7 @@ fn apply_upgrades(
         if level < 5 && request.option > 1 {
             continue;
         }
-        let Some((entity, mut weapon)) = weapons
-            .iter_mut()
-            .find(|(_, w)| w.kind == kind)
-        else {
+        let Some((entity, mut weapon)) = weapons.iter_mut().find(|(_, w)| w.kind == kind) else {
             continue;
         };
 
@@ -255,9 +318,13 @@ fn apply_upgrades(
 /// mandatory choice is vacuous — proceed to the Shop instead of dead-locking.
 fn auto_advance_when_maxed(
     levels: Res<WeaponLevels>,
+    starting_weapon: Res<StartingWeapon>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    if UPGRADE_PATHS.iter().all(|path| levels.maxed(path.kind)) {
+    if starting_weapon
+        .selected
+        .is_some_and(|kind| levels.maxed(kind))
+    {
         next_state.set(GameState::Shop);
     }
 }

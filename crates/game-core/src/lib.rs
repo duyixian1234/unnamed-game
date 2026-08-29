@@ -6,6 +6,7 @@
 
 pub mod ai;
 pub mod combat;
+pub mod damage;
 pub mod economy;
 pub mod enemy;
 pub mod intent;
@@ -29,12 +30,15 @@ use self::waves::WavesPlugin;
 use self::weapon::WeaponPlugin;
 
 /// The high-level game state machine. Drives the whole roguelike loop:
-/// MainMenu → InGame(wave) → UpgradeChoice → Shop → InGame … → Victory / Defeat.
+/// MainMenu → StartingWeaponChoice → InGame(wave) → UpgradeChoice → Shop →
+/// InGame … → Victory / Defeat.
 #[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum GameState {
     /// Title screen with a Start button.
     #[default]
     MainMenu,
+    /// Choose the one Weapon used for the current Run.
+    StartingWeaponChoice,
     /// An active wave of combat (movement + auto-attack + spawning).
     InGame,
     /// Between-wave weapon upgrade pick (one mandatory choice per wave).
@@ -74,6 +78,7 @@ impl Plugin for CorePlugin {
         rng::init_rng(app);
         app.init_state::<GameState>()
             .init_resource::<intent::PlayerMoveIntent>()
+            .init_resource::<damage::DamageStats>()
             .add_message::<RunStarted>()
             .add_message::<RunEnded>()
             .add_plugins((
@@ -86,6 +91,12 @@ impl Plugin for CorePlugin {
                 WavesPlugin,
                 WeaponPlugin,
             ))
+            .add_systems(
+                OnEnter(GameState::StartingWeaponChoice),
+                (damage::reset_run, intent::reset_move_intent),
+            )
+            .add_systems(OnEnter(GameState::InGame), damage::begin_wave)
+            .add_systems(OnExit(GameState::InGame), damage::finish_wave)
             .add_systems(OnEnter(GameState::Victory), report_victory)
             .add_systems(OnEnter(GameState::Defeat), report_defeat);
     }

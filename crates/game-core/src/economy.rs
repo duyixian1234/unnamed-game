@@ -51,13 +51,18 @@ impl Plugin for EconomyPlugin {
         app.init_resource::<Materials>()
             .add_message::<PickupSfx>()
             .add_message::<MaterialPickedUp>()
-            .add_systems(OnEnter(GameState::MainMenu), reset_materials)
+            .add_systems(OnEnter(GameState::StartingWeaponChoice), reset_materials)
             .add_systems(OnExit(GameState::InGame), vacuum_remaining_materials)
             .add_systems(
                 Update,
                 (
                     drop_on_enemy_death,
-                    (attract_materials, fly_attracted_materials, pick_up_materials).chain(),
+                    (
+                        attract_materials,
+                        fly_attracted_materials,
+                        pick_up_materials,
+                    )
+                        .chain(),
                 )
                     .run_if(in_state(GameState::InGame)),
             );
@@ -107,10 +112,7 @@ fn attract_materials(
 fn fly_attracted_materials(
     time: Res<Time>,
     players: Query<&Transform, With<Player>>,
-    mut materials: Query<
-        &mut Transform,
-        (With<Material>, With<Attracted>, Without<Player>),
-    >,
+    mut materials: Query<&mut Transform, (With<Material>, With<Attracted>, Without<Player>)>,
 ) {
     let Ok(player_pos) = players.single().map(|t| t.translation.truncate()) else {
         return;

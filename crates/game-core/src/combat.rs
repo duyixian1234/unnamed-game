@@ -3,6 +3,7 @@
 use bevy::ecs::message::Message;
 use bevy::prelude::*;
 
+use crate::damage::{DamageSource, DamageStats};
 use crate::enemy::{Enemy, EnemyKind, EnemySpawned, Knockback};
 use crate::player::{Health, HitCooldown, Player, ATLAS_CELL_PX, PLAYER_RADIUS};
 use crate::weapon::{MeleeHit, OrbitOrb, Projectile};
@@ -73,8 +74,12 @@ pub(crate) fn apply_damage(
     enemy: &mut Enemy,
     enemy_pos: Vec2,
     amount: f32,
+    source: DamageSource,
+    damage_stats: &mut DamageStats,
 ) {
+    let effective_damage = amount.min(enemy.health.max(0.0));
     enemy.health -= amount;
+    damage_stats.record(source, effective_damage);
     if enemy.health > 0.0 {
         return;
     }
@@ -106,6 +111,7 @@ fn resolve_projectile_hits(
     mut death_writer: MessageWriter<EnemyDied>,
     mut spawn_writer: MessageWriter<EnemySpawned>,
     mut hit_writer: MessageWriter<HitSfx>,
+    mut damage_stats: ResMut<DamageStats>,
     mut projectiles: Query<(&mut Projectile, &Transform)>,
     mut enemies: Query<(Entity, &mut Enemy, &Transform, &mut Knockback), Without<Projectile>>,
 ) {
@@ -131,6 +137,8 @@ fn resolve_projectile_hits(
                 &mut enemy,
                 enemy_pos,
                 projectile.damage,
+                projectile.source,
+                &mut damage_stats,
             );
             knockback.0 += projectile.direction * projectile.knockback;
         }
@@ -143,6 +151,7 @@ fn resolve_melee_hits(
     mut death_writer: MessageWriter<EnemyDied>,
     mut spawn_writer: MessageWriter<EnemySpawned>,
     mut hit_writer: MessageWriter<HitSfx>,
+    mut damage_stats: ResMut<DamageStats>,
     mut melee_hits: Query<(&mut MeleeHit, &Transform)>,
     mut enemies: Query<(Entity, &mut Enemy, &Transform, &mut Knockback), Without<MeleeHit>>,
 ) {
@@ -168,6 +177,8 @@ fn resolve_melee_hits(
                 &mut enemy,
                 enemy_pos,
                 melee.damage,
+                melee.source,
+                &mut damage_stats,
             );
             let dir = (enemy_pos - melee_pos).normalize_or_zero();
             knockback.0 += dir * melee.knockback;
@@ -181,16 +192,23 @@ fn resolve_orb_hits(
     mut death_writer: MessageWriter<EnemyDied>,
     mut spawn_writer: MessageWriter<EnemySpawned>,
     mut hit_writer: MessageWriter<HitSfx>,
+    mut damage_stats: ResMut<DamageStats>,
     mut orbs: Query<(&mut OrbitOrb, &Transform)>,
     mut enemies: Query<(Entity, &mut Enemy, &Transform, &mut Knockback), Without<OrbitOrb>>,
 ) {
     for (mut orb, orb_transform) in &mut orbs {
         let orb_pos = orb_transform.translation.truncate();
-        let orb_radius = 9.0;
+        let orb_radius = crate::weapon::ORB_HIT_RADIUS;
 
         for (enemy_entity, mut enemy, enemy_transform, mut knockback) in &mut enemies {
-            if orb.hit_enemies.contains(&enemy_entity) {
-                continue;
+            if let Some((_, timer)) = orb
+                .hit_cooldowns
+                .iter_mut()
+                .find(|(entity, _)| *entity == enemy_entity)
+            {
+                if !timer.is_finished() {
+                    continue;
+                }
             }
             let enemy_pos = enemy_transform.translation.truncate();
             if !circle_hits_enemy(orb_pos, orb_radius, enemy_pos, &enemy) {
@@ -206,9 +224,22 @@ fn resolve_orb_hits(
                 &mut enemy,
                 enemy_pos,
                 orb.damage,
+                orb.source,
+                &mut damage_stats,
             );
             let dir = (enemy_pos - orb_pos).normalize_or_zero();
             knockback.0 += dir * orb.knockback;
+            match orb
+                .hit_cooldowns
+                .iter_mut()
+                .find(|(entity, _)| *entity == enemy_entity)
+            {
+                Some((_, timer)) => timer.reset(),
+                None => orb.hit_cooldowns.push((
+                    enemy_entity,
+                    Timer::from_seconds(crate::weapon::ORB_REHIT, TimerMode::Once),
+                )),
+            }
         }
     }
 }

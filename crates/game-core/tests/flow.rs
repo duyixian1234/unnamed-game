@@ -16,8 +16,10 @@ use bevy::prelude::*;
 use bevy::state::state::{NextState, State, StateTransitionEvent};
 use bevy::time::TimeUpdateStrategy;
 
-use game_core::ai::AiPlugin;
+use game_core::ai::{AiBuild, AiPlugin};
 use game_core::combat::{EnemyDied, HitSfx, PlayerHurt};
+use game_core::damage::DamageStats;
+use game_core::damage::WeaponSlot;
 use game_core::economy::{Material, MaterialPickedUp, Materials};
 use game_core::enemy::{Enemy, EnemyKind, EnemySpawned};
 use game_core::intent::{PlayerMoveIntent, PurchaseRequest};
@@ -26,7 +28,10 @@ use game_core::rng::Seed;
 use game_core::shop::ItemPurchased;
 use game_core::upgrade::{UpgradeSelected, WeaponLevels};
 use game_core::waves::{Wave, WaveCompleted, WaveConfig, WaveStarted};
-use game_core::weapon::{BomberOrb, MeleeHit, OrbitOrb, Projectile, Weapon, WeaponKind};
+use game_core::weapon::{
+    BomberOrb, MeleeHit, OrbitOrb, Projectile, StartingWeapon, StartingWeaponSelected, Weapon,
+    WeaponKind,
+};
 use game_core::{CorePlugin, GameState, RunEnded, RunOutcome, RunStarted};
 
 /// Fixed timestep of the test harness.
@@ -163,10 +168,239 @@ fn buff_player(app: &mut App) {
     }
 }
 
-/// Start a run from the main menu (the same direct path the Start button / AI use).
-fn start_run(app: &mut App) {
-    set_next_state(app, GameState::InGame);
+/// Start a run through the public starting-weapon selection seam.
+fn start_run_with_weapon(app: &mut App, kind: WeaponKind) {
+    set_next_state(app, GameState::StartingWeaponChoice);
     step(app);
+    app.world_mut()
+        .resource_mut::<Messages<StartingWeaponSelected>>()
+        .write(StartingWeaponSelected { kind });
+    step(app);
+    step(app);
+}
+
+fn start_run(app: &mut App) {
+    start_run_with_weapon(app, WeaponKind::PiercingProjectile);
+}
+
+#[test]
+fn starting_weapon_choice_spawns_only_the_selected_slot() {
+    let mut app = headless(42, 5, false);
+    app.update();
+
+    start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
+
+    assert_eq!(current_state(&app), GameState::InGame);
+    let mut weapons = app.world_mut().query::<&Weapon>();
+    let kinds: Vec<_> = weapons
+        .iter(app.world())
+        .map(|weapon| weapon.kind)
+        .collect();
+    assert_eq!(kinds, vec![WeaponKind::MeleeSwing]);
+    let stats = app.world().resource::<DamageStats>();
+    let slot = stats
+        .current_wave
+        .slot(0)
+        .expect("zero-damage slot registered");
+    assert_eq!(slot.kind, WeaponKind::MeleeSwing);
+    assert_eq!(slot.effective_damage, 0.0);
+    assert_eq!(stats.current_wave.percentage(0.0), 0.0);
+}
+
+#[test]
+fn upgrade_choice_accepts_only_the_equipped_weapon() {
+    let mut app = headless(42, 5, false);
+    app.update();
+    start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
+    set_next_state(&mut app, GameState::UpgradeChoice);
+    step(&mut app);
+
+    send_upgrade(&mut app, WeaponKind::PiercingProjectile, 0);
+    step(&mut app);
+    step(&mut app);
+
+    assert_eq!(current_state(&app), GameState::UpgradeChoice);
+    assert_eq!(
+        app.world()
+            .resource::<WeaponLevels>()
+            .level(WeaponKind::PiercingProjectile),
+        1
+    );
+
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 0);
+    step(&mut app);
+    step(&mut app);
+    assert_eq!(current_state(&app), GameState::Shop);
+}
+
+#[test]
+fn weapon_damage_contribution_counts_effective_damage_by_slot() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run_with_weapon(&mut app, WeaponKind::PiercingProjectile);
+    app.world_mut().spawn((
+        Enemy {
+            kind: EnemyKind::MeleeRusher,
+            speed: 0.0,
+            health: 3.0,
+            split_depth: 0,
+        },
+        Transform::from_xyz(50.0, 0.0, 0.0),
+    ));
+
+    for _ in 0..90 {
+        step(&mut app);
+        if !app.world().resource::<Recording>().deaths.is_empty() {
+            break;
+        }
+    }
+
+    #[test]
+    fn duplicate_weapon_kinds_keep_separate_slot_contributions() {
+        let mut app = headless(42, 5, false);
+        app.insert_resource(WaveConfig {
+            max_waves: 5,
+            spawning: false,
+        });
+        app.update();
+        start_run(&mut app);
+        app.world_mut().spawn((
+            Weapon::new(WeaponKind::PiercingProjectile),
+            WeaponSlot(1),
+            Transform::default(),
+        ));
+        app.world_mut().spawn((
+            Enemy {
+                kind: EnemyKind::MeleeRusher,
+                speed: 0.0,
+                health: 100.0,
+                split_depth: 0,
+            },
+            Transform::from_xyz(50.0, 0.0, 0.0),
+        ));
+
+        for _ in 0..90 {
+            step(&mut app);
+            let stats = app.world().resource::<DamageStats>();
+            if stats
+                .run
+                .slot(0)
+                .is_some_and(|slot| slot.effective_damage > 0.0)
+                && stats
+                    .run
+                    .slot(1)
+                    .is_some_and(|slot| slot.effective_damage > 0.0)
+            {
+                break;
+            }
+        }
+
+        let stats = app.world().resource::<DamageStats>();
+        assert_eq!(stats.run.slot(0).unwrap().effective_damage, 10.0);
+        assert_eq!(stats.run.slot(1).unwrap().effective_damage, 10.0);
+    }
+
+    let stats = app.world().resource::<DamageStats>();
+    let slot = stats.run.slot(0).expect("selected weapon slot recorded");
+    assert_eq!(slot.kind, WeaponKind::PiercingProjectile);
+    assert_eq!(slot.effective_damage, 3.0, "overkill is excluded");
+    assert_eq!(stats.run.total(), 3.0);
+}
+
+#[test]
+fn damage_stats_snapshot_each_wave_and_preserve_run_total() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+    app.world_mut().spawn((
+        Enemy {
+            kind: EnemyKind::MeleeRusher,
+            speed: 0.0,
+            health: 3.0,
+            split_depth: 0,
+        },
+        Transform::from_xyz(50.0, 0.0, 0.0),
+    ));
+    for _ in 0..90 {
+        step(&mut app);
+        if !app.world().resource::<Recording>().deaths.is_empty() {
+            break;
+        }
+    }
+
+    rush_wave_end(&mut app);
+    step(&mut app);
+    step(&mut app);
+    assert_eq!(current_state(&app), GameState::UpgradeChoice);
+    {
+        let stats = app.world().resource::<DamageStats>();
+        assert_eq!(stats.last_wave.total(), 3.0);
+        assert!(stats.last_wave_completed);
+        assert_eq!(stats.run.total(), 3.0);
+    }
+
+    send_upgrade(&mut app, WeaponKind::PiercingProjectile, 0);
+    step(&mut app);
+    step(&mut app);
+    set_next_state(&mut app, GameState::InGame);
+    step(&mut app);
+
+    let stats = app.world().resource::<DamageStats>();
+    assert_eq!(stats.current_wave.total(), 0.0);
+    assert_eq!(stats.run.total(), 3.0);
+}
+
+#[test]
+fn orbiting_orb_rehit_cooldown_is_time_based() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run_with_weapon(&mut app, WeaponKind::OrbitingOrb);
+    for mut weapon in app
+        .world_mut()
+        .query::<&mut Weapon>()
+        .iter_mut(app.world_mut())
+    {
+        weapon.orbit_speed = 0.0;
+    }
+    app.world_mut().spawn((
+        Enemy {
+            kind: EnemyKind::MeleeRusher,
+            speed: 0.0,
+            health: 1.0e6,
+            split_depth: 0,
+        },
+        Transform::from_xyz(70.0, 0.0, 0.0),
+    ));
+
+    for _ in 0..10 {
+        step(&mut app);
+        if app.world().resource::<DamageStats>().run.total() > 0.0 {
+            break;
+        }
+    }
+    let first_hit = app.world().resource::<DamageStats>().run.total();
+    assert!(first_hit > 0.0, "stationary orb lands its first hit");
+
+    for _ in 0..10 {
+        step(&mut app);
+    }
+    assert_eq!(
+        app.world().resource::<DamageStats>().run.total(),
+        first_hit,
+        "same enemy cannot be hit again within 0.25 seconds"
+    );
 }
 
 #[test]
@@ -211,6 +445,7 @@ fn full_flow_reaches_victory_with_expected_state_sequence() {
         rec.states,
         vec![
             GameState::MainMenu,
+            GameState::StartingWeaponChoice,
             GameState::InGame,
             GameState::UpgradeChoice,
             GameState::Shop,
@@ -238,7 +473,7 @@ fn full_flow_reaches_victory_with_expected_state_sequence() {
 fn defeat_returns_to_menu_and_resets_the_run() {
     let mut app = headless(7, 20, false);
     app.update();
-    start_run(&mut app);
+    start_run_with_weapon(&mut app, WeaponKind::OrbitingOrb);
 
     // Scenario setup: a lethal-immune enemy is placed on top of the player.
     let mut players = app.world_mut().query_filtered::<&Transform, With<Player>>();
@@ -270,10 +505,10 @@ fn defeat_returns_to_menu_and_resets_the_run() {
         "RunEnded(Defeat) must be announced"
     );
 
-    // Play Again: back to MainMenu (resets wave counter and wallet).
-    set_next_state(&mut app, GameState::MainMenu);
+    // Play Again: back to StartingWeaponChoice (resets run resources).
+    set_next_state(&mut app, GameState::StartingWeaponChoice);
     step(&mut app);
-    assert_eq!(current_state(&app), GameState::MainMenu);
+    assert_eq!(current_state(&app), GameState::StartingWeaponChoice);
     assert_eq!(app.world().resource::<Materials>().count, 0, "wallet reset");
     assert_eq!(
         app.world().resource::<Wave>().number,
@@ -282,7 +517,7 @@ fn defeat_returns_to_menu_and_resets_the_run() {
     );
 
     // A fresh run spawns a fresh player at full health.
-    start_run(&mut app);
+    start_run_with_weapon(&mut app, WeaponKind::OrbitingOrb);
     assert_eq!(current_state(&app), GameState::InGame);
     let mut players = app.world_mut().query_filtered::<&Health, With<Player>>();
     let health = players.single(app.world()).expect("fresh player spawned");
@@ -345,6 +580,7 @@ fn ai_completes_a_short_run_to_victory() {
         {
             last_seen_pos = transform.translation;
         }
+
         if current_state(&app) == GameState::Victory {
             break;
         }
@@ -369,6 +605,67 @@ fn ai_completes_a_short_run_to_victory() {
     );
 }
 
+#[test]
+fn every_single_weapon_upgrade_path_meets_balance_checkpoints() {
+    for kind in [
+        WeaponKind::PiercingProjectile,
+        WeaponKind::MeleeSwing,
+        WeaponKind::OrbitingOrb,
+    ] {
+        for choices in 0u8..16 {
+            let upgrade_options = std::array::from_fn(|level| ((choices >> level) & 1) as usize);
+            let mut app = headless(42, 5, true);
+            app.insert_resource(AiBuild {
+                weapon: kind,
+                upgrade_options,
+                buy_items: false,
+            });
+            app.update();
+
+            for _ in 0..10_000 {
+                step(&mut app);
+                if matches!(current_state(&app), GameState::Victory | GameState::Defeat) {
+                    break;
+                }
+            }
+
+            assert_eq!(
+                current_state(&app),
+                GameState::Victory,
+                "{kind:?} choices {choices:04b} must survive 5 waves; \
+                 reached wave {}, dealt {:.0} damage",
+                app.world().resource::<Wave>().number,
+                app.world().resource::<DamageStats>().run.total(),
+            );
+        }
+    }
+
+    for (kind, choices) in [
+        (WeaponKind::PiercingProjectile, 0b0000u8),
+        (WeaponKind::MeleeSwing, 0b0000u8),
+        (WeaponKind::OrbitingOrb, 0b1010u8),
+    ] {
+        let mut app = headless(42, 10, true);
+        app.insert_resource(AiBuild {
+            weapon: kind,
+            upgrade_options: std::array::from_fn(|level| ((choices >> level) & 1) as usize),
+            buy_items: false,
+        });
+        app.update();
+        for _ in 0..20_000 {
+            step(&mut app);
+            if matches!(current_state(&app), GameState::Victory | GameState::Defeat) {
+                break;
+            }
+        }
+        assert_eq!(
+            current_state(&app),
+            GameState::Victory,
+            "{kind:?} reasonable route must survive 10 waves"
+        );
+    }
+}
+
 /// Send a purchase request through the same message path the UI and AI use.
 fn send_purchase(app: &mut App, item_index: usize) {
     app.world_mut()
@@ -382,29 +679,6 @@ fn catalog_index(needle: &str) -> usize {
         .iter()
         .position(|item| item.name.contains(needle))
         .expect("item in shop catalog")
-}
-
-/// Despawn every starting weapon slot except `keep`, plus any live hitbox
-/// entities, so the weapon under test is the only attacker. Scenario setup:
-/// `update_orbs` re-spawns orbs only while an OrbitingOrb slot exists, so
-/// removing the slot removes the orb permanently.
-fn keep_only_weapon(app: &mut App, keep: WeaponKind) {
-    let mut weapons = app.world_mut().query::<(Entity, &Weapon)>();
-    let doomed: Vec<Entity> = weapons
-        .iter(app.world())
-        .filter(|(_, weapon)| weapon.kind != keep)
-        .map(|(entity, _)| entity)
-        .collect();
-    for entity in doomed {
-        app.world_mut().despawn(entity);
-    }
-    let mut strays = app
-        .world_mut()
-        .query_filtered::<Entity, Or<(With<Projectile>, With<MeleeHit>, With<OrbitOrb>)>>();
-    let stray_ids: Vec<Entity> = strays.iter(app.world()).collect();
-    for entity in stray_ids {
-        app.world_mut().despawn(entity);
-    }
 }
 
 /// Spawn a static one-hit enemy inside the orbiting orb's kill ring (the orb
@@ -500,7 +774,7 @@ fn shop_purchase_deducts_applies_and_rejects() {
 fn economy_loop_kill_drop_pickup() {
     let mut app = headless(42, 5, false);
     app.update();
-    start_run(&mut app);
+    start_run_with_weapon(&mut app, WeaponKind::OrbitingOrb);
 
     // Scenario setup: a one-hit enemy inside the orb's kill ring (orb fires
     // on the frame after the run starts; no wave spawn happens for ~63
@@ -539,27 +813,28 @@ fn economy_loop_kill_drop_pickup() {
 #[test]
 fn splitter_death_splits_twice_then_stops() {
     let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
     app.update();
-    start_run(&mut app);
+    start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
     // Grandchildren get into contact range during the chain; buff the player
     // so the split test doesn't turn into a defeat test (scenario setup).
     buff_player(&mut app);
 
-    // One-shot orb so the whole chain resolves in a few frames, well before
-    // the first wave spawn (~63 frames).
-    let mut orbs = app.world_mut().query::<&mut OrbitOrb>();
-    for mut orb in orbs.iter_mut(app.world_mut()) {
-        orb.damage = 100.0;
+    // A fast, wide one-shot swing isolates the splitter lifecycle from normal
+    // weapon pacing.
+    let mut weapons = app.world_mut().query::<&mut Weapon>();
+    for mut weapon in weapons.iter_mut(app.world_mut()) {
+        weapon.damage = 100.0;
+        weapon.range = 500.0;
     }
 
     spawn_static_enemy_at_orb_ring(&mut app, EnemyKind::Splitter, 2);
 
     let mut first_gen_checked = false;
-    // 120 frames: with hitboxes smaller than the sprite the orb catches the
-    // fast (150 u/s) children a little later than the old 44-unit hitbox did.
-    // Wave spawns start at ~63 frames but stay far away, so they don't
-    // interfere with the chain.
-    for _ in 0..120 {
+    for _ in 0..240 {
         step(&mut app);
 
         let splits = {
@@ -701,8 +976,7 @@ fn piercing_projectile_hits_each_enemy_once() {
         spawning: false,
     });
     app.update();
-    start_run(&mut app);
-    keep_only_weapon(&mut app, WeaponKind::PiercingProjectile);
+    start_run_with_weapon(&mut app, WeaponKind::PiercingProjectile);
 
     // Two tanky enemies aligned on +X: one shot pierces both.
     for x in [100.0, 300.0] {
@@ -741,7 +1015,7 @@ fn piercing_projectile_hits_each_enemy_once() {
     let healths: Vec<f32> = enemies.iter(app.world()).map(|e| e.health).collect();
     assert_eq!(healths.len(), 2);
     for health in healths {
-        assert_eq!(health, 90.0, "exactly one 10-damage hit per enemy");
+        assert_eq!(health, 76.0, "exactly one 24-damage hit per enemy");
     }
 }
 
@@ -754,8 +1028,7 @@ fn melee_swing_hits_every_enemy_in_radius_once() {
         spawning: false,
     });
     app.update();
-    start_run(&mut app);
-    keep_only_weapon(&mut app, WeaponKind::MeleeSwing);
+    start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
 
     // Three tanky enemies inside the swing ring (radius 90 + body 22) but
     // outside contact range (42), so only the swing can touch them.
@@ -788,7 +1061,7 @@ fn melee_swing_hits_every_enemy_in_radius_once() {
     let healths: Vec<f32> = enemies.iter(app.world()).map(|e| e.health).collect();
     assert_eq!(healths.len(), 3);
     for health in healths {
-        assert_eq!(health, 75.0, "exactly one 25-damage hit per enemy");
+        assert_eq!(health, 60.0, "exactly one 40-damage hit per enemy");
     }
 }
 
@@ -810,8 +1083,7 @@ fn melee_swing_only_fires_when_an_enemy_is_in_range() {
         spawning: false,
     });
     app.update();
-    start_run(&mut app);
-    keep_only_weapon(&mut app, WeaponKind::MeleeSwing);
+    start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
 
     // No enemies at all: across two swing cooldown cycles (~1.8 s) not a
     // single MeleeHit may spawn — the swing must not flash over empty ground.
@@ -883,10 +1155,13 @@ fn wave_end_heals_half_of_max_hp() {
 
     // Scenario setup: damage the player directly to 40/100.
     let mut players = app.world_mut().query_filtered::<Entity, With<Player>>();
-    let player = players.single(app.world()).expect("player spawned on wave 1");
-    app.world_mut()
-        .entity_mut(player)
-        .insert(Health { max: 100.0, current: 40.0 });
+    let player = players
+        .single(app.world())
+        .expect("player spawned on wave 1");
+    app.world_mut().entity_mut(player).insert(Health {
+        max: 100.0,
+        current: 40.0,
+    });
 
     // Wait for wave 1's timer (30 s) to elapse and the upgrade pick to open.
     let mut steps = 0;
@@ -900,7 +1175,9 @@ fn wave_end_heals_half_of_max_hp() {
         "wave 1 completed"
     );
     let mut players = app.world_mut().query_filtered::<&Health, With<Player>>();
-    let health = players.single(app.world()).expect("player persists across waves");
+    let health = players
+        .single(app.world())
+        .expect("player persists across waves");
     assert_eq!(health.max, 100.0);
     assert_eq!(health.current, 90.0, "wave end recovers 50% of max HP");
 
@@ -945,11 +1222,13 @@ fn material_within_attraction_radius_flies_to_player_and_is_collected() {
         steps += 1;
     }
     assert_eq!(
-        app.world().resource::<Materials>().count, 1,
+        app.world().resource::<Materials>().count,
+        1,
         "material inside the attraction radius was collected"
     );
     assert_eq!(
-        count_materials(&mut app), 1,
+        count_materials(&mut app),
+        1,
         "the far material still lies on the field"
     );
     let mut far_q = app.world_mut().query::<(&Transform, &Material)>();
@@ -964,7 +1243,10 @@ fn material_within_attraction_radius_flies_to_player_and_is_collected() {
     let mut players = app
         .world_mut()
         .query_filtered::<&mut PlayerStats, With<Player>>();
-    players.single_mut(app.world_mut()).unwrap().attraction_radius = 220.0;
+    players
+        .single_mut(app.world_mut())
+        .unwrap()
+        .attraction_radius = 220.0;
     step(&mut app);
     let (transform, _) = far_q.get(app.world(), far).unwrap();
     assert!(
@@ -1051,7 +1333,8 @@ fn wave_end_vacuums_all_remaining_materials_into_the_wallet() {
             break;
         }
         assert_eq!(
-            app.world().resource::<Materials>().count, 0,
+            app.world().resource::<Materials>().count,
+            0,
             "unattracted materials must stay uncollected mid-wave"
         );
     }
@@ -1061,7 +1344,8 @@ fn wave_end_vacuums_all_remaining_materials_into_the_wallet() {
         "wave 1 completed"
     );
     assert_eq!(
-        app.world().resource::<Materials>().count, 3,
+        app.world().resource::<Materials>().count,
+        3,
         "wave end vacuum credited every remaining material"
     );
     assert_eq!(count_materials(&mut app), 0, "no material entities remain");
@@ -1090,8 +1374,7 @@ fn projectile_knockback_pushes_enemy_then_decays() {
         spawning: false,
     });
     app.update();
-    start_run(&mut app);
-    keep_only_weapon(&mut app, WeaponKind::PiercingProjectile);
+    start_run_with_weapon(&mut app, WeaponKind::PiercingProjectile);
 
     // A tanky, motionless enemy downrange on +X: the projectile hits it and
     // the knockback must shove it further along +X, then decay to rest.
@@ -1102,7 +1385,7 @@ fn projectile_knockback_pushes_enemy_then_decays() {
             health: 1.0e6,
             split_depth: 0,
         },
-        Transform::from_xyz(300.0, 0.0, 0.0),
+        Transform::from_xyz(100.0, 0.0, 0.0),
     ));
 
     let mut steps = 0;
@@ -1124,7 +1407,7 @@ fn projectile_knockback_pushes_enemy_then_decays() {
     let mut enemies = app.world_mut().query::<(&Transform, &Enemy)>();
     let (transform, _) = enemies.single(app.world()).expect("enemy alive after hit");
     let x_at_hit = transform.translation.x;
-    assert!(x_at_hit > 300.0, "knockback pushed the enemy along +X");
+    assert!(x_at_hit > 100.0, "knockback pushed the enemy along +X");
 
     // 0.5 s later the drift is nearly spent; 1 s later it has stopped.
     for _ in 0..30 {
@@ -1132,7 +1415,10 @@ fn projectile_knockback_pushes_enemy_then_decays() {
     }
     let (transform, _) = enemies.single(app.world()).unwrap();
     let x_05s = transform.translation.x;
-    assert!(x_05s - x_at_hit > 2.0, "still drifting shortly after the hit");
+    assert!(
+        x_05s - x_at_hit > 2.0,
+        "still drifting shortly after the hit"
+    );
     for _ in 0..30 {
         step(&mut app);
     }
@@ -1165,11 +1451,11 @@ fn wave_lifecycle_events_and_loadout_persistence() {
         if current_state(&app) == GameState::Shop {
             shop_visits += 1;
             // Both before and after a Shop→InGame re-entry the starting
-            // loadout must still be exactly three slots (no re-grant).
+            // loadout must still be exactly one slot (no re-grant).
             let mut weapons = app.world_mut().query::<&Weapon>();
             assert_eq!(
                 weapons.iter(app.world()).count(),
-                3,
+                1,
                 "starting loadout granted exactly once (shop visit {})",
                 shop_visits
             );
@@ -1214,23 +1500,19 @@ fn send_upgrade(app: &mut App, kind: WeaponKind, option: usize) {
         .write(UpgradeSelected { kind, option });
 }
 
-/// Pick option A of the first path that is not yet Lv6 (what the test AI does).
+/// Pick option A for the equipped path (what the test AI does).
 fn pick_any_upgrade(app: &mut App) {
-    let kind = [
-        WeaponKind::PiercingProjectile,
-        WeaponKind::MeleeSwing,
-        WeaponKind::OrbitingOrb,
-    ]
-    .into_iter()
-    .find(|k| !app.world().resource::<WeaponLevels>().maxed(*k))
-    .expect("some path still upgradeable");
+    let kind = app
+        .world()
+        .resource::<StartingWeapon>()
+        .selected
+        .expect("starting weapon selected");
     send_upgrade(app, kind, 0);
 }
 
 /// Scenario setup: shrink the current wave timer so the next step ends it.
 fn rush_wave_end(app: &mut App) {
-    app.world_mut().resource_mut::<Wave>().wave_timer =
-        Timer::from_seconds(0.01, TimerMode::Once);
+    app.world_mut().resource_mut::<Wave>().wave_timer = Timer::from_seconds(0.01, TimerMode::Once);
 }
 
 /// Scenario setup + player agency: put `kind` at Lv5, then make the Lv6
@@ -1312,10 +1594,10 @@ fn upgrade_choice_flow_and_stat_application() {
             WeaponKind::PiercingProjectile => {
                 let cooldown = weapon.cooldown.duration().as_secs_f32();
                 assert!(
-                    (cooldown - 0.68).abs() < 1e-6,
+                    (cooldown - 0.51).abs() < 1e-6,
                     "cooldown -15% applied, got {cooldown}"
                 );
-                assert_eq!(weapon.damage, 10.0, "unpicked stat untouched");
+                assert_eq!(weapon.damage, 24.0, "unpicked stat untouched");
             }
             WeaponKind::MeleeSwing => {
                 assert_eq!(weapon.damage, 25.0, "other weapons untouched");
@@ -1324,7 +1606,7 @@ fn upgrade_choice_flow_and_stat_application() {
         }
     }
 
-    // Wave 2: pick MeleeSwing L2 B (Range +20%).
+    // Wave 2: continue the equipped Piercing path with L3 A (Speed +20%).
     set_next_state(&mut app, GameState::InGame);
     step(&mut app);
     rush_wave_end(&mut app);
@@ -1333,30 +1615,30 @@ fn upgrade_choice_flow_and_stat_application() {
         step(&mut app);
         steps += 1;
     }
-    send_upgrade(&mut app, WeaponKind::MeleeSwing, 1);
+    send_upgrade(&mut app, WeaponKind::PiercingProjectile, 0);
     step(&mut app);
     step(&mut app);
     assert_eq!(current_state(&app), GameState::Shop);
     assert_eq!(
         app.world()
             .resource::<WeaponLevels>()
-            .level(WeaponKind::MeleeSwing),
-        2
+            .level(WeaponKind::PiercingProjectile),
+        3
     );
     assert_eq!(
         app.world()
             .resource::<WeaponLevels>()
-            .level(WeaponKind::PiercingProjectile),
-        2,
-        "prior pick persisted"
+            .level(WeaponKind::MeleeSwing),
+        1,
+        "unowned path remains untouched"
     );
     let mut weapons = app.world_mut().query::<&Weapon>();
     for weapon in weapons.iter(app.world()) {
-        if weapon.kind == WeaponKind::MeleeSwing {
+        if weapon.kind == WeaponKind::PiercingProjectile {
             assert!(
-                (weapon.range - 108.0).abs() < 1e-4,
-                "range +20% applied, got {}",
-                weapon.range
+                (weapon.projectile_speed - 504.0).abs() < 1e-4,
+                "projectile speed +20% applied, got {}",
+                weapon.projectile_speed
             );
         }
     }
@@ -1370,8 +1652,7 @@ fn melee_lv6_whirlwind_hits_continuously_without_swing_rhythm() {
         spawning: false,
     });
     app.update();
-    start_run(&mut app);
-    keep_only_weapon(&mut app, WeaponKind::MeleeSwing);
+    start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
     buff_player(&mut app);
     evolve_via_choice(&mut app, WeaponKind::MeleeSwing);
 
@@ -1405,7 +1686,11 @@ fn melee_lv6_whirlwind_hits_continuously_without_swing_rhythm() {
         first <= 12,
         "first strike must be immediate (frame {first}), not swing-rhythm gated"
     );
-    assert!(rec.hits >= 2, "continuous re-hits within 1.5 s, got {}", rec.hits);
+    assert!(
+        rec.hits >= 2,
+        "continuous re-hits within 1.5 s, got {}",
+        rec.hits
+    );
     assert_eq!(
         melee_seen, 0,
         "no discrete MeleeHit hitboxes after the evolution"
@@ -1420,8 +1705,7 @@ fn piercing_lv6_splitshot_spawns_fan_shards_on_first_hit() {
         spawning: false,
     });
     app.update();
-    start_run(&mut app);
-    keep_only_weapon(&mut app, WeaponKind::PiercingProjectile);
+    start_run_with_weapon(&mut app, WeaponKind::PiercingProjectile);
     evolve_via_choice(&mut app, WeaponKind::PiercingProjectile);
 
     // A tanky enemy downrange on +X.
@@ -1446,9 +1730,7 @@ fn piercing_lv6_splitshot_spawns_fan_shards_on_first_hit() {
             saw_first_hit = true;
         }
         if saw_first_hit {
-            let mut projectiles = app
-                .world_mut()
-                .query_filtered::<Entity, With<Projectile>>();
+            let mut projectiles = app.world_mut().query_filtered::<Entity, With<Projectile>>();
             saw_shards |= projectiles.iter(app.world()).count() >= 4;
         }
         if saw_shards && hits >= 4 {
@@ -1463,7 +1745,10 @@ fn piercing_lv6_splitshot_spawns_fan_shards_on_first_hit() {
 
     // Shards inherit 50% damage: parent (10) + at least one shard (5).
     let mut enemies = app.world_mut().query::<&Enemy>();
-    let health = enemies.single(app.world()).expect("tanky enemy alive").health;
+    let health = enemies
+        .single(app.world())
+        .expect("tanky enemy alive")
+        .health;
     assert!(
         1.0e6 - health >= 15.0 - 1e-3,
         "shard damage must land beyond the parent's hit, total {}",
@@ -1479,8 +1764,7 @@ fn orb_lv6_bomber_orb_explodes_on_contact_and_respawns() {
         spawning: false,
     });
     app.update();
-    start_run(&mut app);
-    keep_only_weapon(&mut app, WeaponKind::OrbitingOrb);
+    start_run_with_weapon(&mut app, WeaponKind::OrbitingOrb);
     evolve_via_choice(&mut app, WeaponKind::OrbitingOrb);
 
     // A contact enemy in the orb's path, plus a witness far beyond the orb's
@@ -1528,16 +1812,24 @@ fn orb_lv6_bomber_orb_explodes_on_contact_and_respawns() {
         "the AOE explosion must reach the witness at x=140 (orb contact cannot)"
     );
 
-    // The orb respawns instantly after exploding (the weapon slot persists):
-    // remove the contact enemy so the replacement orb has nothing to hit and
-    // survives the frame; it must be back with its marker.
+    // The orb stays absent for its 0.6 second respawn window.
     app.world_mut().despawn(contact);
-    step(&mut app);
+    for _ in 0..30 {
+        step(&mut app);
+    }
     let mut orbs = app
         .world_mut()
         .query_filtered::<Entity, (With<OrbitOrb>, With<BomberOrb>)>();
+    assert_eq!(
+        orbs.iter(app.world()).count(),
+        0,
+        "BomberOrb must remain absent before 0.6 seconds"
+    );
+    for _ in 0..10 {
+        step(&mut app);
+    }
     assert!(
         orbs.iter(app.world()).count() >= 1,
-        "a BomberOrb exists again right after the explosion"
+        "a BomberOrb returns after the 0.6 second delay"
     );
 }

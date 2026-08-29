@@ -5,11 +5,12 @@ use bevy::math::Vec2;
 use bevy::prelude::*;
 use rand::Rng;
 
+use crate::damage::DamageStats;
 use crate::economy::Material;
 use crate::enemy::{Enemy, EnemyKind, EnemySpawned};
 use crate::player::{Health, Player};
 use crate::rng::{GlobalRng, RandomDraw};
-use crate::weapon::{MeleeHit, OrbitOrb, Projectile, Whirlwind};
+use crate::weapon::{BomberExplosion, MeleeHit, OrbitOrb, Projectile, Whirlwind};
 use crate::{GameState, RunStarted};
 
 /// Half-extents of the play field; enemies spawn just outside these edges.
@@ -89,7 +90,7 @@ impl Plugin for WavesPlugin {
             .add_message::<WaveStarted>()
             .add_message::<WaveCompleted>()
             .add_systems(OnEnter(GameState::InGame), (start_wave, announce_wave))
-            .add_systems(OnEnter(GameState::MainMenu), reset_run)
+            .add_systems(OnEnter(GameState::StartingWeaponChoice), reset_run)
             .add_systems(OnExit(GameState::InGame), clear_combat_entities)
             .add_systems(OnEnter(GameState::Victory), clear_player)
             .add_systems(OnEnter(GameState::Defeat), clear_player)
@@ -118,6 +119,7 @@ fn clear_combat_entities(
     orbs: Query<Entity, With<OrbitOrb>>,
     melee: Query<Entity, With<MeleeHit>>,
     whirlwinds: Query<Entity, With<Whirlwind>>,
+    explosions: Query<Entity, With<BomberExplosion>>,
     materials: Query<Entity, With<Material>>,
 ) {
     for entity in enemies
@@ -126,6 +128,7 @@ fn clear_combat_entities(
         .chain(orbs.iter())
         .chain(melee.iter())
         .chain(whirlwinds.iter())
+        .chain(explosions.iter())
         .chain(materials.iter())
     {
         commands.entity(entity).despawn();
@@ -176,6 +179,7 @@ fn advance_wave(
     config: Res<WaveConfig>,
     mut next_state: ResMut<NextState<GameState>>,
     mut completed_writer: MessageWriter<WaveCompleted>,
+    mut damage_stats: ResMut<DamageStats>,
     mut players: Query<&mut Health, With<Player>>,
 ) {
     wave.wave_timer.tick(time.delta());
@@ -188,6 +192,7 @@ fn advance_wave(
     completed_writer.write(WaveCompleted {
         number: wave.number,
     });
+    damage_stats.mark_wave_completed();
     if wave.number >= config.max_waves {
         next_state.set(GameState::Victory);
     } else {
