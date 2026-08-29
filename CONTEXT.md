@@ -18,6 +18,7 @@ Target platform: WebAssembly (browser). Assets generated via the `mmx` CLI.
 - **Run**: one attempt of the game, from starting a new game to Victory or Defeat. Death ends the Run.
 - **Seed**: the initial value of the Run's random number generator. Identical Seeds produce identical Runs (determinism).
 - **Asset**: a static image or audio file generated via mmx, stored in `assets/`.
+- **Knockback (击退)**: brief displacement applied to an Enemy when hit by a Weapon. Each Weapon has its own Knockback strength (data-driven, not a global rule).
 
 ## Decisions (see docs/adr/)
 - Use the Bevy engine, pinned to 0.17.
@@ -33,6 +34,7 @@ Target platform: WebAssembly (browser). Assets generated via the `mmx` CLI.
 - **Combat / weapon model**: 3 weapons for MVP — melee swing, piercing projectile, orbiting orb. Projectile + hit-scan model done once; adding weapons later is data-only. Up to 6 Weapon Slots.
 - **Economy**: enemies drop Materials → between-wave Shop buys Items (pure stat-boost gains) → character growth. In-wave 3-choice upgrade deferred past MVP.
 - **Wave / difficulty**: fixed 20 waves, escalating count/intensity, shop between waves, survive to 20 to win. One-life roguelike (death = restart). Wave count configurable.
+- **Wave recovery**: when a Wave ends, the Player recovers 50% of max HP before entering the Shop.
 - **Audio**: SFX only for MVP (hit / pickup / hurt), via mmx TTS → ogg; BGM deferred.
 
 ## Technical decisions (settled)
@@ -44,6 +46,7 @@ Target platform: WebAssembly (browser). Assets generated via the `mmx` CLI.
 - **Deployment**: Cloudflare Pages (static Trunk build); the wasm bundle must fit the 25 MiB per-file limit, so Bevy features are trimmed and size-optimized — see ADR 0006.
 - **UI**: Bevy built-in `bevy_ui` for HUD / shop / menu.
 - **State machine**: Bevy `States` for MainMenu → InGame(wave) → Shop → … → Victory/Defeat.
+- **Background**: per-wave fractal (FBM) noise texture generated at runtime in the app layer; variant derived deterministically from Seed + wave number; fills the viewport with a subtle field-boundary line. Purely cosmetic.
 
 ## Open questions
 - (None — gameplay fully settled. Remaining decisions are technical implementation.)
