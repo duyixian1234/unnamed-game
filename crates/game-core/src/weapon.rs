@@ -12,7 +12,7 @@ use crate::GameState;
 pub const MAX_WEAPON_SLOTS: usize = 6;
 
 /// The MVP weapon archetypes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WeaponKind {
     PiercingProjectile,
     MeleeSwing,
@@ -26,6 +26,15 @@ impl WeaponKind {
             WeaponKind::PiercingProjectile => "穿透弹",
             WeaponKind::MeleeSwing => "近战弧光",
             WeaponKind::OrbitingOrb => "环绕球",
+        }
+    }
+
+    /// ASCII name for the upgrade screen (its text is ASCII-only).
+    pub fn ascii_name(self) -> &'static str {
+        match self {
+            WeaponKind::PiercingProjectile => "Piercing Shot",
+            WeaponKind::MeleeSwing => "Melee Swing",
+            WeaponKind::OrbitingOrb => "Orbiting Orb",
         }
     }
 
@@ -52,6 +61,12 @@ pub struct Weapon {
     pub projectile_speed: f32,
     /// Effective range for melee swing (and projectile lifetime).
     pub range: f32,
+    /// Multiplier on `WeaponKind::knockback` (upgrade paths scale it).
+    pub knockback_mult: f32,
+    /// Orbit angular speed (radians/s); used when kind == OrbitingOrb.
+    pub orbit_speed: f32,
+    /// Orbit radius around the player; used when kind == OrbitingOrb.
+    pub orbit_radius: f32,
 }
 
 impl Weapon {
@@ -61,13 +76,25 @@ impl Weapon {
             WeaponKind::MeleeSwing => (0.9, 25.0, 0.0, 90.0),
             WeaponKind::OrbitingOrb => (0.0, 8.0, 0.0, 0.0),
         };
+        let (orbit_speed, orbit_radius) = match kind {
+            WeaponKind::OrbitingOrb => (2.5, 70.0),
+            _ => (0.0, 0.0),
+        };
         Self {
             kind,
             cooldown: Timer::from_seconds(interval, TimerMode::Repeating),
             damage,
             projectile_speed,
             range,
+            knockback_mult: 1.0,
+            orbit_speed,
+            orbit_radius,
         }
+    }
+
+    /// Final knockback impulse for this weapon's hits.
+    pub fn knockback_impulse(&self) -> f32 {
+        self.kind.knockback() * self.knockback_mult
     }
 }
 
@@ -140,9 +167,6 @@ impl Plugin for WeaponPlugin {
                 // Orbs must move and clear their per-frame hit list before
                 // combat resolves orb contact damage this frame.
                 update_orbs.before(CombatSet::ResolveDamage),
-                // Expire hitboxes only after combat damage has resolved, so
-                // a just-spawned melee swing connects this frame.
-                expire_melee_hits.after(CombatSet::ResolveDamage),
             )
                 .run_if(in_state(GameState::InGame)),
         );
@@ -228,9 +252,6 @@ fn auto_attack(
                 ));
             }
             WeaponKind::MeleeSwing => {
-                // Gate on reach (the same formula as the hit test via
-                // combat::circle_hits_enemy), so the swing only fires — and
-                // its visual only flashes — when it can actually connect.
                 let in_reach = enemies.iter().any(|(transform, enemy)| {
                     circle_hits_enemy(
                         player_pos,

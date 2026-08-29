@@ -12,6 +12,7 @@ pub mod intent;
 pub mod player;
 pub mod rng;
 pub mod shop;
+pub mod upgrade;
 pub mod waves;
 pub mod weapon;
 
@@ -23,11 +24,12 @@ use self::economy::EconomyPlugin;
 use self::enemy::EnemyPlugin;
 use self::player::PlayerPlugin;
 use self::shop::ShopPlugin;
+use self::upgrade::UpgradePlugin;
 use self::waves::WavesPlugin;
 use self::weapon::WeaponPlugin;
 
 /// The high-level game state machine. Drives the whole roguelike loop:
-/// MainMenu → InGame(wave) → Shop → InGame … → Victory / Defeat.
+/// MainMenu → InGame(wave) → UpgradeChoice → Shop → InGame … → Victory / Defeat.
 #[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum GameState {
     /// Title screen with a Start button.
@@ -35,6 +37,8 @@ pub enum GameState {
     MainMenu,
     /// An active wave of combat (movement + auto-attack + spawning).
     InGame,
+    /// Between-wave weapon upgrade pick (one mandatory choice per wave).
+    UpgradeChoice,
     /// Between-wave shop where the player spends Materials on items.
     Shop,
     /// Survived all waves.
@@ -78,6 +82,7 @@ impl Plugin for CorePlugin {
                 EnemyPlugin,
                 PlayerPlugin,
                 ShopPlugin,
+                UpgradePlugin,
                 WavesPlugin,
                 WeaponPlugin,
             ))
