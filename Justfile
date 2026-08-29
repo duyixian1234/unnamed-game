@@ -77,12 +77,13 @@ default := "dev"
 @deploy: build-web
     npx wrangler pages deploy dist --project-name=unnamed-game
 
-# ---- Assets (mmx-generated sprites/sfx, ADR-0002) --------------------------
+# ---- Assets (mmx-generated sprites/sfx + subsetted font, ADR-0002/0007) ----
 
-# Regenerate sfx + sprites via the mmx CLI
+# Regenerate sfx + sprites via the mmx CLI, and the subsetted UI font
 @assets:
     bash tools/gen_sfx.sh
     bash tools/gen_sprites.sh
+    bash tools/gen_font.sh
 
 # ---- Misc ------------------------------------------------------------------
 
