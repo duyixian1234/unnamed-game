@@ -28,5 +28,33 @@
   </head>
   <body>
     <!-- Bevy app mounts its WebGPU canvas here (built by Trunk). -->
+    <script>
+      // Web audio autoplay-policy workaround (no sound without this):
+      // bevy_audio/rodio create the cpal AudioContext at startup, before any
+      // user gesture, so the browser starts it "suspended" and cpal's one-shot
+      // resume() in Stream::play() has already run by then. Track every
+      // context created via the constructor and resume them all on the first
+      // pointer/keyboard gesture (the Start button click qualifies).
+      (function () {
+        var contexts = new Set();
+        var RealAudioContext = window.AudioContext;
+        function PatchedAudioContext(options) {
+          var ctx = new RealAudioContext(options);
+          contexts.add(ctx);
+          return ctx;
+        }
+        PatchedAudioContext.prototype = RealAudioContext.prototype;
+        window.AudioContext = PatchedAudioContext;
+        var resumeAll = function () {
+          contexts.forEach(function (ctx) {
+            if (ctx.state === "suspended") {
+              RealAudioContext.prototype.resume.call(ctx);
+            }
+          });
+        };
+        document.addEventListener("pointerdown", resumeAll);
+        document.addEventListener("keydown", resumeAll);
+      })();
+    </script>
   </body>
 </html>
