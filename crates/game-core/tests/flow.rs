@@ -24,8 +24,9 @@ use game_core::intent::{PlayerMoveIntent, PurchaseRequest};
 use game_core::player::{Health, Player, PlayerStats};
 use game_core::rng::Seed;
 use game_core::shop::ItemPurchased;
+use game_core::upgrade::{UpgradeSelected, WeaponLevels};
 use game_core::waves::{Wave, WaveCompleted, WaveConfig, WaveStarted};
-use game_core::weapon::{MeleeHit, OrbitOrb, Projectile, Weapon, WeaponKind};
+use game_core::weapon::{BomberOrb, MeleeHit, OrbitOrb, Projectile, Weapon, WeaponKind};
 use game_core::{CorePlugin, GameState, RunEnded, RunOutcome, RunStarted};
 
 /// Fixed timestep of the test harness.
@@ -121,7 +122,10 @@ fn headless(seed: u64, max_waves: u32, with_ai: bool) -> App {
     app.edit_schedule(Update, |schedule| {
         schedule.set_executor_kind(ExecutorKind::SingleThreaded);
     });
-    app.add_systems(Update, record);
+    // Record in `Last` so a frame's messages are recorded in the same frame
+    // they are written, regardless of how ambiguous Update systems order
+    // against the recording system.
+    app.add_systems(Last, record);
     app
 }
 
@@ -180,6 +184,10 @@ fn full_flow_reaches_victory_with_expected_state_sequence() {
             buff_player(&mut app);
             buffed = true;
         }
+        if current_state(&app) == GameState::UpgradeChoice {
+            // The wave-end pick is mandatory; make it like the UI/AI do.
+            pick_any_upgrade(&mut app);
+        }
         if current_state(&app) == GameState::Shop {
             // Continue to the next wave (the Continue button's direct path).
             set_next_state(&mut app, GameState::InGame);
@@ -197,14 +205,17 @@ fn full_flow_reaches_victory_with_expected_state_sequence() {
         "3-wave run should end in Victory"
     );
     let rec = app.world().resource::<Recording>();
-    // State sequence: MainMenu (init) → InGame → Shop → InGame → Shop → InGame → Victory.
+    // State sequence: MainMenu (init) → InGame → UpgradeChoice → Shop →
+    // InGame → UpgradeChoice → Shop → InGame → Victory.
     assert_eq!(
         rec.states,
         vec![
             GameState::MainMenu,
             GameState::InGame,
+            GameState::UpgradeChoice,
             GameState::Shop,
             GameState::InGame,
+            GameState::UpgradeChoice,
             GameState::Shop,
             GameState::InGame,
             GameState::Victory,
@@ -291,7 +302,7 @@ fn same_seed_produces_identical_spawn_streams() {
                 buff_player(&mut app);
                 buffed = true;
             }
-            if current_state(&app) == GameState::Shop {
+            if current_state(&app) == GameState::UpgradeChoice {
                 break; // wave 1 completed; stop here
             }
             step(&mut app);
@@ -877,17 +888,27 @@ fn wave_end_heals_half_of_max_hp() {
         .entity_mut(player)
         .insert(Health { max: 100.0, current: 40.0 });
 
-    // Wait for wave 1's timer (30 s) to elapse and the shop to open.
+    // Wait for wave 1's timer (30 s) to elapse and the upgrade pick to open.
     let mut steps = 0;
-    while current_state(&app) != GameState::Shop && steps < 2_400 {
+    while current_state(&app) != GameState::UpgradeChoice && steps < 2_400 {
         step(&mut app);
         steps += 1;
     }
-    assert_eq!(current_state(&app), GameState::Shop, "wave 1 completed");
+    assert_eq!(
+        current_state(&app),
+        GameState::UpgradeChoice,
+        "wave 1 completed"
+    );
     let mut players = app.world_mut().query_filtered::<&Health, With<Player>>();
     let health = players.single(app.world()).expect("player persists across waves");
     assert_eq!(health.max, 100.0);
     assert_eq!(health.current, 90.0, "wave end recovers 50% of max HP");
+
+    // The mandatory pick confirms into the Shop (apply frame + transition).
+    pick_any_upgrade(&mut app);
+    step(&mut app);
+    step(&mut app);
+    assert_eq!(current_state(&app), GameState::Shop);
 }
 
 /// Spawn a material drop directly on the field (scenario setup).
@@ -1034,7 +1055,11 @@ fn wave_end_vacuums_all_remaining_materials_into_the_wallet() {
             "unattracted materials must stay uncollected mid-wave"
         );
     }
-    assert_eq!(current_state(&app), GameState::Shop, "wave 1 completed");
+    assert_eq!(
+        current_state(&app),
+        GameState::UpgradeChoice,
+        "wave 1 completed"
+    );
     assert_eq!(
         app.world().resource::<Materials>().count, 3,
         "wave end vacuum credited every remaining material"
@@ -1048,6 +1073,12 @@ fn wave_end_vacuums_all_remaining_materials_into_the_wallet() {
         .copied()
         .collect();
     assert_eq!(pickups, vec![1, 1, 1], "vacuum announced each pickup");
+
+    // The mandatory pick confirms into the Shop (apply frame + transition).
+    pick_any_upgrade(&mut app);
+    step(&mut app);
+    step(&mut app);
+    assert_eq!(current_state(&app), GameState::Shop);
 }
 
 #[test]
@@ -1128,6 +1159,9 @@ fn wave_lifecycle_events_and_loadout_persistence() {
             buff_player(&mut app);
             buffed = true;
         }
+        if current_state(&app) == GameState::UpgradeChoice {
+            pick_any_upgrade(&mut app);
+        }
         if current_state(&app) == GameState::Shop {
             shop_visits += 1;
             // Both before and after a Shop→InGame re-entry the starting
@@ -1171,4 +1205,339 @@ fn wave_lifecycle_events_and_loadout_persistence() {
             "WaveStarted({start}) must follow WaveCompleted({prev})"
         );
     }
+}
+
+/// Write an upgrade pick through the same message path the UI and AI use.
+fn send_upgrade(app: &mut App, kind: WeaponKind, option: usize) {
+    app.world_mut()
+        .resource_mut::<Messages<UpgradeSelected>>()
+        .write(UpgradeSelected { kind, option });
+}
+
+/// Pick option A of the first path that is not yet Lv6 (what the test AI does).
+fn pick_any_upgrade(app: &mut App) {
+    let kind = [
+        WeaponKind::PiercingProjectile,
+        WeaponKind::MeleeSwing,
+        WeaponKind::OrbitingOrb,
+    ]
+    .into_iter()
+    .find(|k| !app.world().resource::<WeaponLevels>().maxed(*k))
+    .expect("some path still upgradeable");
+    send_upgrade(app, kind, 0);
+}
+
+/// Scenario setup: shrink the current wave timer so the next step ends it.
+fn rush_wave_end(app: &mut App) {
+    app.world_mut().resource_mut::<Wave>().wave_timer =
+        Timer::from_seconds(0.01, TimerMode::Once);
+}
+
+/// Scenario setup + player agency: put `kind` at Lv5, then make the Lv6
+/// evolution pick through the real UpgradeChoice flow (levels resource write
+/// is scenario setup; the pick itself goes through the message path).
+fn evolve_via_choice(app: &mut App, kind: WeaponKind) {
+    app.world_mut()
+        .resource_mut::<WeaponLevels>()
+        .set_level(kind, 5);
+    set_next_state(app, GameState::UpgradeChoice);
+    step(app);
+    assert_eq!(current_state(app), GameState::UpgradeChoice);
+    send_upgrade(app, kind, 0);
+    // Two frames: the core applies the pick in UpgradeChoice, the transition
+    // to Shop lands at the start of the next frame.
+    step(app);
+    step(app);
+    assert_eq!(current_state(app), GameState::Shop);
+    set_next_state(app, GameState::InGame);
+    step(app);
+}
+
+#[test]
+fn upgrade_choice_flow_and_stat_application() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+
+    // Wave 1 ends into UpgradeChoice, not Shop.
+    rush_wave_end(&mut app);
+    let mut steps = 0;
+    while current_state(&app) != GameState::UpgradeChoice && steps < 120 {
+        step(&mut app);
+        steps += 1;
+    }
+    assert_eq!(
+        current_state(&app),
+        GameState::UpgradeChoice,
+        "wave end must open UpgradeChoice, not Shop"
+    );
+    assert!(
+        !app.world()
+            .resource::<Recording>()
+            .states
+            .contains(&GameState::Shop),
+        "Shop must not be reached before the pick"
+    );
+
+    // Pick Piercing L2 B (Cooldown -15%): stats change, level +1, then Shop.
+    send_upgrade(&mut app, WeaponKind::PiercingProjectile, 1);
+    step(&mut app);
+    step(&mut app);
+    assert_eq!(
+        current_state(&app),
+        GameState::Shop,
+        "the pick confirms into the Shop"
+    );
+    assert_eq!(
+        app.world()
+            .resource::<WeaponLevels>()
+            .level(WeaponKind::PiercingProjectile),
+        2,
+        "level incremented"
+    );
+    assert_eq!(
+        app.world()
+            .resource::<WeaponLevels>()
+            .level(WeaponKind::MeleeSwing),
+        1,
+        "other paths untouched"
+    );
+    let mut weapons = app.world_mut().query::<&Weapon>();
+    for weapon in weapons.iter(app.world()) {
+        match weapon.kind {
+            WeaponKind::PiercingProjectile => {
+                let cooldown = weapon.cooldown.duration().as_secs_f32();
+                assert!(
+                    (cooldown - 0.68).abs() < 1e-6,
+                    "cooldown -15% applied, got {cooldown}"
+                );
+                assert_eq!(weapon.damage, 10.0, "unpicked stat untouched");
+            }
+            WeaponKind::MeleeSwing => {
+                assert_eq!(weapon.damage, 25.0, "other weapons untouched");
+            }
+            WeaponKind::OrbitingOrb => {}
+        }
+    }
+
+    // Wave 2: pick MeleeSwing L2 B (Range +20%).
+    set_next_state(&mut app, GameState::InGame);
+    step(&mut app);
+    rush_wave_end(&mut app);
+    steps = 0;
+    while current_state(&app) != GameState::UpgradeChoice && steps < 120 {
+        step(&mut app);
+        steps += 1;
+    }
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 1);
+    step(&mut app);
+    step(&mut app);
+    assert_eq!(current_state(&app), GameState::Shop);
+    assert_eq!(
+        app.world()
+            .resource::<WeaponLevels>()
+            .level(WeaponKind::MeleeSwing),
+        2
+    );
+    assert_eq!(
+        app.world()
+            .resource::<WeaponLevels>()
+            .level(WeaponKind::PiercingProjectile),
+        2,
+        "prior pick persisted"
+    );
+    let mut weapons = app.world_mut().query::<&Weapon>();
+    for weapon in weapons.iter(app.world()) {
+        if weapon.kind == WeaponKind::MeleeSwing {
+            assert!(
+                (weapon.range - 108.0).abs() < 1e-4,
+                "range +20% applied, got {}",
+                weapon.range
+            );
+        }
+    }
+}
+
+#[test]
+fn melee_lv6_whirlwind_hits_continuously_without_swing_rhythm() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+    keep_only_weapon(&mut app, WeaponKind::MeleeSwing);
+    buff_player(&mut app);
+    evolve_via_choice(&mut app, WeaponKind::MeleeSwing);
+
+    // A tanky enemy well inside the blade reach (radius 90 + body 22).
+    app.world_mut().spawn((
+        Enemy {
+            kind: EnemyKind::MeleeRusher,
+            speed: 0.0,
+            health: 1.0e6,
+            split_depth: 0,
+        },
+        Transform::from_xyz(40.0, 0.0, 0.0),
+    ));
+
+    let mut first_hit_frame = None;
+    let mut melee_seen = 0;
+    let mut steps = 0;
+    while steps < 90 {
+        step(&mut app);
+        steps += 1;
+        melee_seen += count_live_melee_hits(&mut app);
+        if first_hit_frame.is_none() && app.world().resource::<Recording>().hits >= 1 {
+            first_hit_frame = Some(steps);
+        }
+    }
+    let rec = app.world().resource::<Recording>();
+    let first = first_hit_frame.expect("the whirlwind must strike");
+    // A plain swing would not land before its 0.9 s cooldown (~54 frames);
+    // the whirlwind strikes immediately and re-hits every 0.4 s.
+    assert!(
+        first <= 12,
+        "first strike must be immediate (frame {first}), not swing-rhythm gated"
+    );
+    assert!(rec.hits >= 2, "continuous re-hits within 1.5 s, got {}", rec.hits);
+    assert_eq!(
+        melee_seen, 0,
+        "no discrete MeleeHit hitboxes after the evolution"
+    );
+}
+
+#[test]
+fn piercing_lv6_splitshot_spawns_fan_shards_on_first_hit() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+    keep_only_weapon(&mut app, WeaponKind::PiercingProjectile);
+    evolve_via_choice(&mut app, WeaponKind::PiercingProjectile);
+
+    // A tanky enemy downrange on +X.
+    app.world_mut().spawn((
+        Enemy {
+            kind: EnemyKind::MeleeRusher,
+            speed: 0.0,
+            health: 1.0e6,
+            split_depth: 0,
+        },
+        Transform::from_xyz(300.0, 0.0, 0.0),
+    ));
+
+    let mut saw_first_hit = false;
+    let mut saw_shards = false;
+    let mut steps = 0;
+    while steps < 180 {
+        step(&mut app);
+        steps += 1;
+        let hits = app.world().resource::<Recording>().hits;
+        if hits >= 1 {
+            saw_first_hit = true;
+        }
+        if saw_first_hit {
+            let mut projectiles = app
+                .world_mut()
+                .query_filtered::<Entity, With<Projectile>>();
+            saw_shards |= projectiles.iter(app.world()).count() >= 4;
+        }
+        if saw_shards && hits >= 4 {
+            break; // parent + all 3 shards connected
+        }
+    }
+    assert!(saw_first_hit, "the parent projectile must land");
+    assert!(
+        saw_shards,
+        "first hit must fan out into 3 shards (parent + 3)"
+    );
+
+    // Shards inherit 50% damage: parent (10) + at least one shard (5).
+    let mut enemies = app.world_mut().query::<&Enemy>();
+    let health = enemies.single(app.world()).expect("tanky enemy alive").health;
+    assert!(
+        1.0e6 - health >= 15.0 - 1e-3,
+        "shard damage must land beyond the parent's hit, total {}",
+        1.0e6 - health
+    );
+}
+
+#[test]
+fn orb_lv6_bomber_orb_explodes_on_contact_and_respawns() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+    keep_only_weapon(&mut app, WeaponKind::OrbitingOrb);
+    evolve_via_choice(&mut app, WeaponKind::OrbitingOrb);
+
+    // A contact enemy in the orb's path, plus a witness far beyond the orb's
+    // contact reach (31) but inside the explosion radius (90 around the orb).
+    let contact = app
+        .world_mut()
+        .spawn((
+            Enemy {
+                kind: EnemyKind::MeleeRusher,
+                speed: 0.0,
+                health: 1.0e9,
+                split_depth: 0,
+            },
+            Transform::from_xyz(70.0, 0.0, 0.0),
+        ))
+        .id();
+    let witness = app
+        .world_mut()
+        .spawn((
+            Enemy {
+                kind: EnemyKind::MeleeRusher,
+                speed: 0.0,
+                health: 1000.0,
+                split_depth: 0,
+            },
+            Transform::from_xyz(140.0, 0.0, 0.0),
+        ))
+        .id();
+
+    let mut exploded = false;
+    let mut steps = 0;
+    while steps < 90 {
+        step(&mut app);
+        steps += 1;
+        let mut enemies = app.world_mut().query::<&Enemy>();
+        if let Ok(enemy) = enemies.get(app.world(), witness) {
+            if enemy.health < 1000.0 {
+                exploded = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        exploded,
+        "the AOE explosion must reach the witness at x=140 (orb contact cannot)"
+    );
+
+    // The orb respawns instantly after exploding (the weapon slot persists):
+    // remove the contact enemy so the replacement orb has nothing to hit and
+    // survives the frame; it must be back with its marker.
+    app.world_mut().despawn(contact);
+    step(&mut app);
+    let mut orbs = app
+        .world_mut()
+        .query_filtered::<Entity, (With<OrbitOrb>, With<BomberOrb>)>();
+    assert!(
+        orbs.iter(app.world()).count() >= 1,
+        "a BomberOrb exists again right after the explosion"
+    );
 }
