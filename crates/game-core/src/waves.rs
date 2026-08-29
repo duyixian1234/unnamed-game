@@ -9,7 +9,7 @@ use crate::economy::Material;
 use crate::enemy::{Enemy, EnemyKind, EnemySpawned};
 use crate::player::{Health, Player};
 use crate::rng::{GlobalRng, RandomDraw};
-use crate::weapon::{MeleeHit, OrbitOrb, Projectile};
+use crate::weapon::{MeleeHit, OrbitOrb, Projectile, Whirlwind};
 use crate::{GameState, RunStarted};
 
 /// Half-extents of the play field; enemies spawn just outside these edges.
@@ -107,15 +107,17 @@ impl Plugin for WavesPlugin {
     }
 }
 
-/// Leaving InGame (to Shop, Victory, or Defeat) clears the field of enemies,
-/// projectiles, orbs, melee hitboxes, and dropped materials. The player is kept
-/// across waves but despawned on Victory/Defeat by `clear_player`.
+/// Leaving InGame (to UpgradeChoice, Victory, or Defeat) clears the field of
+/// enemies, projectiles, orbs, melee hitboxes, whirlwinds, and dropped
+/// materials. The player is kept across waves but despawned on Victory/Defeat
+/// by `clear_player`.
 fn clear_combat_entities(
     mut commands: Commands,
     enemies: Query<Entity, With<Enemy>>,
     projectiles: Query<Entity, With<Projectile>>,
     orbs: Query<Entity, With<OrbitOrb>>,
     melee: Query<Entity, With<MeleeHit>>,
+    whirlwinds: Query<Entity, With<Whirlwind>>,
     materials: Query<Entity, With<Material>>,
 ) {
     for entity in enemies
@@ -123,6 +125,7 @@ fn clear_combat_entities(
         .chain(projectiles.iter())
         .chain(orbs.iter())
         .chain(melee.iter())
+        .chain(whirlwinds.iter())
         .chain(materials.iter())
     {
         commands.entity(entity).despawn();
@@ -166,7 +169,7 @@ fn reset_run(mut wave: ResMut<Wave>) {
 }
 
 /// When a wave's time elapses, recover 50% of max HP (wave recovery), then
-/// advance to the Shop or to Victory.
+/// advance to the UpgradeChoice (mandatory weapon upgrade pick) or to Victory.
 fn advance_wave(
     time: Res<Time>,
     mut wave: ResMut<Wave>,
@@ -189,7 +192,7 @@ fn advance_wave(
         next_state.set(GameState::Victory);
     } else {
         wave.number += 1;
-        next_state.set(GameState::Shop);
+        next_state.set(GameState::UpgradeChoice);
     }
 }
 
