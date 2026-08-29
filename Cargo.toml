@@ -50,5 +50,11 @@ opt-level = 1
 opt-level = 3
 
 [profile.release]
-# Optimize the wasm binary size for deployment.
+# Optimize the wasm binary size for deployment (Cloudflare Pages <=25 MiB).
 opt-level = "s"
+# Size flags per the Bevy wasm guide: fat LTO + single CGU shrink the bundle a
+# lot; strip removes debuginfo that bloats the wasm; abort shrinks panic paths.
+lto = "fat"
+codegen-units = 1
+strip = "debuginfo"
+panic = "abort"
