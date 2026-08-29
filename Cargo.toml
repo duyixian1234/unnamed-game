@@ -1,14 +1,13 @@
-[package]
-name = "unnamed-game"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = ["crates/game-core", "crates/app"]
 
-[dependencies]
+[workspace.dependencies]
 # Bevy 0.17 pinned (see CONTEXT.md -> Decisions, ADR-0001).
-# We opt OUT of default features and enable only what a 2D sprite game needs.
-# This removes 3D (PBR/gltf/animation/scene/mesh/light/shader/gizmos/picking) and
-# keeps the wasm bundle small enough to deploy to Cloudflare Pages (<=25 MiB).
-# WebGPU is enabled and WebGL2 is left off, per ADR-0001.
+# We opt OUT of default features and enable only what each crate needs.
+# `app` enables the full 2D sprite set below (removes 3D and keeps the wasm
+# bundle small enough to deploy to Cloudflare Pages, <=25 MiB). WebGPU is
+# enabled and WebGL2 is left off, per ADR-0001.
 bevy = { version = "0.17", default-features = false, features = [
   "std",
   "async_executor",
@@ -39,8 +38,9 @@ bevy = { version = "0.17", default-features = false, features = [
   "wayland",
 ] }
 
-# Random positions for edge spawning and drop scatter.
+# Seeded RNG for deterministic runs (ADR-0005).
 rand = "0.9"
+rand_chacha = "0.9"
 
 [profile.dev]
 # Slightly faster local iteration for the native loop.

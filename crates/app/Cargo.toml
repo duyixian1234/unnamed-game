@@ -1,0 +1,16 @@
+[package]
+name = "unnamed-game"
+version = "0.1.0"
+edition = "2021"
+
+# The presentation crate (ADR-0004): DefaultPlugins (render/window/audio),
+# sprites, UI, camera, and the seed CLI. All simulation logic lives in
+# `game-core`; this crate reads core state and attaches visuals to it.
+
+[[bin]]
+name = "unnamed-game"
+path = "src/main.rs"
+
+[dependencies]
+bevy = { workspace = true }
+game-core = { path = "../game-core" }

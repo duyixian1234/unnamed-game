@@ -1,0 +1,18 @@
+# Trunk configuration for the wasm/browser build (ADR-0003).
+# Trunk runs from `crates/app` (the workspace's bin crate, ADR-0004):
+#   cd crates/app && trunk serve      # dev loop
+#   cd crates/app && trunk build --release
+# Dist output lands at the repo-root dist/ so the deploy path is unchanged.
+
+[build]
+target = "index.html"
+dist = "../../dist"
+public_url = "/"
+
+[serve]
+address = "127.0.0.1"
+port = 8080
+
+# Assets are copied by index.html's `<link data-trunk rel="copy-dir"
+# href="../../assets">` (the repo-root assets/ directory), so they land in
+# dist/assets and resolve to /assets/... in the browser build.

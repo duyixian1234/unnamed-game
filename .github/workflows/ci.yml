@@ -1,0 +1,27 @@
+# Native CI: build + test the workspace (issue #15).
+# The wasm/browser build is verified locally via trunk (ADR-0003); CI covers
+# the simulation crate's headless integration tests and the app build.
+
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (native)
+        run: cargo build --workspace
+      - name: Test
+        run: cargo test --workspace

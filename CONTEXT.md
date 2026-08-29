@@ -15,6 +15,8 @@ Target platform: WebAssembly (browser). Assets generated via the `mmx` CLI.
 - **Material**: dropped by defeated enemies; the currency for the shop. (Brotato: materials)
 - **Shop**: between-wave screen where the Player spends Materials to buy items/upgrades.
 - **Horde-survival**: the genre; the Player fights off waves of enemies while surviving.
+- **Run**: one attempt of the game, from starting a new game to Victory or Defeat. Death ends the Run.
+- **Seed**: the initial value of the Run's random number generator. Identical Seeds produce identical Runs (determinism).
 - **Asset**: a static image or audio file generated via mmx, stored in `assets/`.
 
 ## Decisions (see docs/adr/)
@@ -37,7 +39,8 @@ Target platform: WebAssembly (browser). Assets generated via the `mmx` CLI.
 - **Engine/rendering**: Bevy 0.17, pure 2D sprites. WebAssembly render backend = **WebGPU** (not WebGL2).
 - **Build tooling**: Trunk (serves assets + auto-rebuild); wasm32-unknown-unknown target + wasm-bindgen-cli to be installed.
 - **Dev loop**: dual-target — `cargo run` for native fast iteration, `trunk` for the wasm browser build.
-- **Project structure**: single crate with modules (`game::player`, `enemy`, `combat`, `economy`, `waves`, `ui`).
+- **Project structure**: Cargo workspace split into `game-core` (simulation logic) + `app` (bin: rendering, audio, UI) — see ADR 0004.
+- **Determinism**: Runs are seeded and reproducible; a single managed RNG with explicit system ordering — see ADR 0005.
 - **UI**: Bevy built-in `bevy_ui` for HUD / shop / menu.
 - **State machine**: Bevy `States` for MainMenu → InGame(wave) → Shop → … → Victory/Defeat.
 
