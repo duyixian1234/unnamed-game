@@ -79,6 +79,12 @@ default := "dev"
 @deploy: build-web-checked
     npx wrangler pages deploy dist --project-name=unnamed-game
 
+# Deploy the freshly built dist/ as a Production deployment (Pages production
+# branch is "main"; the repo itself only has master, so we label the upload).
+# Skips the rebuild when dist/ is current — run `just build-web-checked` first.
+@deploy-prod:
+    npx wrangler pages deploy dist --project-name=unnamed-game --branch=main
+
 # ---- Assets (mmx-generated sprites/sfx + subsetted font, ADR-0002/0007) ----
 
 # Regenerate sfx + sprites via the mmx CLI, and the subsetted UI font
