@@ -63,8 +63,9 @@ impl Plugin for CombatPlugin {
 }
 
 /// Apply damage to an enemy; despawn and emit `EnemyDied` (with splitter
-/// children) if it drops to zero health.
-fn apply_damage(
+/// children) if it drops to zero health. Shared by the core hit resolution
+/// and the evolution behaviors (whirlwind strikes, bomber AOE) in weapon.rs.
+pub(crate) fn apply_damage(
     commands: &mut Commands,
     death_writer: &mut MessageWriter<EnemyDied>,
     spawn_writer: &mut MessageWriter<EnemySpawned>,

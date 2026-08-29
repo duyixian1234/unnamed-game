@@ -13,6 +13,8 @@ use crate::economy::Material;
 use crate::enemy::Enemy;
 use crate::intent::{PlayerMoveIntent, PurchaseRequest};
 use crate::player::Player;
+use crate::upgrade::{UpgradeSelected, WeaponLevels};
+use crate::weapon::WeaponKind;
 use crate::GameState;
 
 /// Threat radius: enemies closer than this make the AI flee.
@@ -28,6 +30,7 @@ impl Plugin for AiPlugin {
             (
                 ai_menu_navigation.run_if(in_state(GameState::MainMenu)),
                 ai_combat_movement.run_if(in_state(GameState::InGame)),
+                ai_upgrade.run_if(in_state(GameState::UpgradeChoice)),
                 ai_continue.run_if(in_state(GameState::Shop)),
                 ai_buy.run_if(in_state(GameState::Shop)),
                 ai_play_again.run_if(in_state(GameState::Victory).or(in_state(GameState::Defeat))),
@@ -44,6 +47,21 @@ fn ai_menu_navigation(mut next_state: ResMut<NextState<GameState>>) {
 /// Continue to the next wave from the shop.
 fn ai_continue(mut next_state: ResMut<NextState<GameState>>) {
     next_state.set(GameState::InGame);
+}
+
+/// The wave-end upgrade pick is mandatory: take the first non-maxed path,
+/// option A. The core applies it and moves on to the Shop.
+fn ai_upgrade(levels: Res<WeaponLevels>, mut writer: MessageWriter<UpgradeSelected>) {
+    for kind in [
+        WeaponKind::PiercingProjectile,
+        WeaponKind::MeleeSwing,
+        WeaponKind::OrbitingOrb,
+    ] {
+        if !levels.maxed(kind) {
+            writer.write(UpgradeSelected { kind, option: 0 });
+            return;
+        }
+    }
 }
 
 /// Return to the main menu from an end screen (resets the run).
