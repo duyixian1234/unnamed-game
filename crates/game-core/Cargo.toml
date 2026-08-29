@@ -17,3 +17,4 @@ bevy = { workspace = true, default-features = false, features = [
 ] }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
+web-time = "1"

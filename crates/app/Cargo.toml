@@ -14,3 +14,4 @@ path = "src/main.rs"
 [dependencies]
 bevy = { workspace = true }
 game-core = { path = "../game-core" }
+web-time = "1"

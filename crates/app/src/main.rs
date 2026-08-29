@@ -80,8 +80,8 @@ fn parse_seed() -> u64 {
         }
     }
     parsed.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        web_time::SystemTime::now()
+            .duration_since(web_time::SystemTime::UNIX_EPOCH)
             .expect("system clock before UNIX_EPOCH")
             .as_nanos() as u64
     })

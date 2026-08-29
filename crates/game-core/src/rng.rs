@@ -29,8 +29,8 @@ pub struct RandomDraw;
 /// `GlobalRng` from it. Called by `CorePlugin::build`.
 pub fn init_rng(app: &mut App) {
     if app.world().get_resource::<Seed>().is_none() {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let nanos = web_time::SystemTime::now()
+            .duration_since(web_time::SystemTime::UNIX_EPOCH)
             .expect("system clock before UNIX_EPOCH")
             .as_nanos() as u64;
         app.insert_resource(Seed(nanos));
