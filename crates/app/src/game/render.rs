@@ -243,7 +243,7 @@ fn animate_bomber_explosions(
         } else {
             1.0
         };
-        transform.scale = Vec3::ONE;
+        transform.scale = Vec3::splat(progress.max(0.05));
         if let Some(material) = materials.get_mut(&material.0) {
             material.color = Color::srgba(1.0, 0.35, 0.12, 0.85 * (1.0 - progress));
         }

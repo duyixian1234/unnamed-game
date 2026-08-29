@@ -58,7 +58,7 @@ impl Evolution {
         match self {
             Evolution::Whirlwind => "刀刃持续环绕自身旋转，全方位连续命中，移动不打断攻击",
             Evolution::Splitshot => "首次命中后分裂为 3 枚短程扇形弹片（50% 伤害）",
-            Evolution::BomberOrb => "球体接触敌人时爆炸（小范围 AOE），随后立刻重生",
+            Evolution::BomberOrb => "球体接触敌人时爆炸（小范围 AOE），0.6 秒后重生",
         }
     }
 }

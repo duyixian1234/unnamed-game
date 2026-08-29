@@ -200,7 +200,7 @@ fn starting_weapon_choice_spawns_only_the_selected_slot() {
     let stats = app.world().resource::<DamageStats>();
     let slot = stats
         .current_wave
-        .slot(0)
+        .slot(WeaponSlot(0))
         .expect("zero-damage slot registered");
     assert_eq!(slot.kind, WeaponKind::MeleeSwing);
     assert_eq!(slot.effective_damage, 0.0);
@@ -259,56 +259,65 @@ fn weapon_damage_contribution_counts_effective_damage_by_slot() {
         }
     }
 
-    #[test]
-    fn duplicate_weapon_kinds_keep_separate_slot_contributions() {
-        let mut app = headless(42, 5, false);
-        app.insert_resource(WaveConfig {
-            max_waves: 5,
-            spawning: false,
-        });
-        app.update();
-        start_run(&mut app);
-        app.world_mut().spawn((
-            Weapon::new(WeaponKind::PiercingProjectile),
-            WeaponSlot(1),
-            Transform::default(),
-        ));
-        app.world_mut().spawn((
-            Enemy {
-                kind: EnemyKind::MeleeRusher,
-                speed: 0.0,
-                health: 100.0,
-                split_depth: 0,
-            },
-            Transform::from_xyz(50.0, 0.0, 0.0),
-        ));
-
-        for _ in 0..90 {
-            step(&mut app);
-            let stats = app.world().resource::<DamageStats>();
-            if stats
-                .run
-                .slot(0)
-                .is_some_and(|slot| slot.effective_damage > 0.0)
-                && stats
-                    .run
-                    .slot(1)
-                    .is_some_and(|slot| slot.effective_damage > 0.0)
-            {
-                break;
-            }
-        }
-
-        let stats = app.world().resource::<DamageStats>();
-        assert_eq!(stats.run.slot(0).unwrap().effective_damage, 10.0);
-        assert_eq!(stats.run.slot(1).unwrap().effective_damage, 10.0);
-    }
-
     let stats = app.world().resource::<DamageStats>();
-    let slot = stats.run.slot(0).expect("selected weapon slot recorded");
+    let slot = stats
+        .run
+        .slot(WeaponSlot(0))
+        .expect("selected weapon slot recorded");
     assert_eq!(slot.kind, WeaponKind::PiercingProjectile);
     assert_eq!(slot.effective_damage, 3.0, "overkill is excluded");
     assert_eq!(stats.run.total(), 3.0);
+}
+
+#[test]
+fn duplicate_weapon_kinds_keep_separate_slot_contributions() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+    app.world_mut().spawn((
+        Weapon::new(WeaponKind::PiercingProjectile),
+        WeaponSlot(1),
+        Transform::default(),
+    ));
+    app.world_mut().spawn((
+        Enemy {
+            kind: EnemyKind::MeleeRusher,
+            speed: 0.0,
+            health: 100.0,
+            split_depth: 0,
+        },
+        Transform::from_xyz(50.0, 0.0, 0.0),
+    ));
+
+    for _ in 0..90 {
+        step(&mut app);
+        let stats = app.world().resource::<DamageStats>();
+        if stats
+            .run
+            .slot(WeaponSlot(0))
+            .is_some_and(|slot| slot.effective_damage > 0.0)
+            && stats
+                .run
+                .slot(WeaponSlot(1))
+                .is_some_and(|slot| slot.effective_damage > 0.0)
+        {
+            break;
+        }
+    }
+
+    let stats = app.world().resource::<DamageStats>();
+    assert_eq!(
+        stats.run.slot(WeaponSlot(0)).unwrap().effective_damage,
+        24.0
+    );
+    assert_eq!(
+        stats.run.slot(WeaponSlot(1)).unwrap().effective_damage,
+        24.0
+    );
 }
 
 #[test]
@@ -1349,13 +1358,7 @@ fn wave_end_vacuums_all_remaining_materials_into_the_wallet() {
         "wave end vacuum credited every remaining material"
     );
     assert_eq!(count_materials(&mut app), 0, "no material entities remain");
-    let pickups: Vec<u32> = app
-        .world()
-        .resource::<Recording>()
-        .pickups
-        .iter()
-        .copied()
-        .collect();
+    let pickups = app.world().resource::<Recording>().pickups.to_vec();
     assert_eq!(pickups, vec![1, 1, 1], "vacuum announced each pickup");
 
     // The mandatory pick confirms into the Shop (apply frame + transition).

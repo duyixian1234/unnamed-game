@@ -11,6 +11,7 @@ use game_core::weapon::{StartingWeapon, StartingWeaponSelected, WeaponKind};
 use game_core::GameState;
 
 use super::{ui_font, ScreenRoot};
+use crate::game::assets::{atlas_image, SpriteAssets};
 
 const CARD_BG: Color = Color::srgb(0.10, 0.11, 0.16);
 const CARD_HOVER: Color = Color::srgb(0.16, 0.19, 0.28);
@@ -20,6 +21,7 @@ const CARD_SELECTED: Color = Color::srgb(0.18, 0.27, 0.40);
 struct StartingWeaponUiState {
     focused: WeaponKind,
     selected: Option<WeaponKind>,
+    details_expanded: bool,
 }
 
 impl Default for StartingWeaponUiState {
@@ -27,6 +29,7 @@ impl Default for StartingWeaponUiState {
         Self {
             focused: WeaponKind::PiercingProjectile,
             selected: None,
+            details_expanded: false,
         }
     }
 }
@@ -81,12 +84,14 @@ fn spawn_starting_weapon_screen(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     starting_weapon: Res<StartingWeapon>,
+    sprite_assets: Res<SpriteAssets>,
     mut ui_state: ResMut<StartingWeaponUiState>,
 ) {
     ui_state.focused = starting_weapon
         .selected
         .unwrap_or(WeaponKind::PiercingProjectile);
     ui_state.selected = None;
+    ui_state.details_expanded = false;
 
     commands
         .spawn((
@@ -131,7 +136,7 @@ fn spawn_starting_weapon_screen(
                         WeaponKind::MeleeSwing,
                         WeaponKind::OrbitingOrb,
                     ] {
-                        spawn_weapon_card(cards, &asset_server, kind);
+                        spawn_weapon_card(cards, &asset_server, &sprite_assets, kind);
                     }
                 });
 
@@ -185,6 +190,7 @@ fn spawn_starting_weapon_screen(
 fn spawn_weapon_card(
     parent: &mut ChildSpawnerCommands,
     asset_server: &AssetServer,
+    sprite_assets: &SpriteAssets,
     kind: WeaponKind,
 ) {
     let (role, stats, evolution) = card_copy(kind);
@@ -206,6 +212,14 @@ fn spawn_weapon_card(
             BorderColor::all(Color::srgb(0.24, 0.28, 0.38)),
         ))
         .with_children(|card| {
+            card.spawn((
+                Node {
+                    width: Val::Px(48.0),
+                    height: Val::Px(48.0),
+                    ..default()
+                },
+                atlas_image(sprite_assets, SpriteAssets::weapon_icon_index(kind)),
+            ));
             card.spawn((
                 Text::new(kind.display_name()),
                 ui_font(asset_server, 26.0),
@@ -244,7 +258,7 @@ fn card_copy(kind: WeaponKind) -> (&'static str, &'static str, &'static str) {
         WeaponKind::OrbitingOrb => (
             "贴身持续",
             "伤害 70 · 环绕半径 100 · 环绕速度 10.0 · 击退 180",
-            "自爆卫星：接触敌人时爆炸并立即重生",
+            "自爆卫星：接触敌人时爆炸，0.6 秒后重生",
         ),
     }
 }
@@ -276,6 +290,7 @@ fn select_card(
         if *interaction == Interaction::Pressed {
             ui_state.focused = card.kind;
             ui_state.selected = Some(card.kind);
+            ui_state.details_expanded = true;
         }
     }
 }
@@ -341,7 +356,11 @@ fn update_choice_visuals(
         };
     }
     for mut text in &mut details_text {
-        text.0 = route_details(ui_state.focused);
+        text.0 = if ui_state.details_expanded {
+            route_details(ui_state.focused)
+        } else {
+            "选择武器卡片以展开完整升级路线".to_string()
+        };
     }
 }
 
@@ -362,8 +381,12 @@ fn keyboard_choice(
 
     if keyboard.just_pressed(KeyCode::ArrowLeft) || keyboard.just_pressed(KeyCode::KeyA) {
         ui_state.focused = kinds[(current + kinds.len() - 1) % kinds.len()];
+        ui_state.selected = None;
+        ui_state.details_expanded = false;
     } else if keyboard.just_pressed(KeyCode::ArrowRight) || keyboard.just_pressed(KeyCode::KeyD) {
         ui_state.focused = kinds[(current + 1) % kinds.len()];
+        ui_state.selected = None;
+        ui_state.details_expanded = false;
     }
 
     if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::Space) {
@@ -373,6 +396,7 @@ fn keyboard_choice(
             });
         } else {
             ui_state.selected = Some(ui_state.focused);
+            ui_state.details_expanded = true;
         }
     }
 }

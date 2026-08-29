@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use crate::weapon::WeaponKind;
 
 /// Stable identity of one equipped Weapon Slot.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WeaponSlot(pub u8);
 
 /// Attribution carried by every damaging attack.
@@ -27,17 +27,17 @@ pub struct SlotDamage {
 /// Damage contributions for one Wave or Run.
 #[derive(Debug, Clone, Default)]
 pub struct DamagePeriod {
-    slots: BTreeMap<u8, SlotDamage>,
+    slots: BTreeMap<WeaponSlot, SlotDamage>,
     pub other: f32,
 }
 
 impl DamagePeriod {
-    pub fn slot(&self, index: u8) -> Option<&SlotDamage> {
+    pub fn slot(&self, index: WeaponSlot) -> Option<&SlotDamage> {
         self.slots.get(&index)
     }
 
-    pub fn slots(&self) -> impl Iterator<Item = (u8, &SlotDamage)> {
-        self.slots.iter().map(|(index, damage)| (*index, damage))
+    pub fn slots(&self) -> impl Iterator<Item = (WeaponSlot, &SlotDamage)> {
+        self.slots.iter().map(|(slot, damage)| (*slot, damage))
     }
 
     pub fn total(&self) -> f32 {
@@ -60,7 +60,7 @@ impl DamagePeriod {
     fn record(&mut self, source: DamageSource, effective_damage: f32) {
         match source {
             DamageSource::Weapon { slot, kind } => {
-                let entry = self.slots.entry(slot.0).or_insert(SlotDamage {
+                let entry = self.slots.entry(slot).or_insert(SlotDamage {
                     kind,
                     effective_damage: 0.0,
                 });
@@ -71,7 +71,7 @@ impl DamagePeriod {
     }
 
     fn register_weapon(&mut self, slot: WeaponSlot, kind: WeaponKind) {
-        self.slots.entry(slot.0).or_insert(SlotDamage {
+        self.slots.entry(slot).or_insert(SlotDamage {
             kind,
             effective_damage: 0.0,
         });

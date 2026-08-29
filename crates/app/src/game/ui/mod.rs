@@ -12,7 +12,7 @@ pub mod weapon_bar;
 
 use bevy::prelude::*;
 
-use game_core::damage::DamageStats;
+use game_core::damage::{DamageStats, WeaponSlot};
 use game_core::weapon::MAX_WEAPON_SLOTS;
 
 /// Plugin for all UI screens.
@@ -62,8 +62,8 @@ pub fn damage_summary_text(stats: &DamageStats, incomplete_label: bool) -> Strin
 
     let mut has_slot = false;
     for index in 0..MAX_WEAPON_SLOTS as u8 {
-        let last = stats.last_wave.slot(index);
-        let run = stats.run.slot(index);
+        let last = stats.last_wave.slot(WeaponSlot(index));
+        let run = stats.run.slot(WeaponSlot(index));
         let Some(slot) = last.or(run) else {
             continue;
         };

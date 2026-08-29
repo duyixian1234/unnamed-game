@@ -201,7 +201,10 @@ mod tests {
     fn same_seed_produces_identical_textures() {
         let a = generate_background_image(wave_seed(42, 3));
         let b = generate_background_image(wave_seed(42, 3));
-        assert_eq!(a.data, b.data, "identical seed+wave must replay identically");
+        assert_eq!(
+            a.data, b.data,
+            "identical seed+wave must replay identically"
+        );
 
         let c = generate_background_image(wave_seed(42, 4));
         assert_ne!(a.data, c.data, "different waves should differ");

@@ -129,7 +129,7 @@ pub struct Projectile {
 pub struct SplitsOnHit;
 
 /// Marker on orbs of a Bomber-Orb-evolved weapon: on contact they explode in
-/// a small AOE and despawn (`update_orbs` respawns them next frame).
+/// a small AOE and despawn (`update_orbs` respawns them after a delay).
 #[derive(Component)]
 pub struct BomberOrb;
 
@@ -685,7 +685,7 @@ fn splitshot_on_first_hit(
 
 /// Bomber Orb evolution: an orb that touched an enemy this tick explodes in a
 /// small AOE (skipping enemies the contact hit already damaged) and despawns;
-/// `update_orbs` respawns it next frame.
+/// `update_orbs` respawns it after a delay.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn bomber_orb_explosions(
     mut commands: Commands,

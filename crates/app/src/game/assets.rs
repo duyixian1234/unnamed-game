@@ -94,3 +94,14 @@ pub fn atlas_sprite(assets: &SpriteAssets, index: usize) -> Sprite {
         },
     )
 }
+
+/// Build a UI image from the atlas at the given cell index.
+pub fn atlas_image(assets: &SpriteAssets, index: usize) -> ImageNode {
+    ImageNode::from_atlas_image(
+        assets.atlas.clone(),
+        TextureAtlas {
+            layout: assets.layout.clone(),
+            index,
+        },
+    )
+}

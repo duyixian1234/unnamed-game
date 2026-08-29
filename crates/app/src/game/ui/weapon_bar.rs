@@ -10,7 +10,7 @@ use game_core::weapon::Weapon;
 use game_core::GameState;
 
 use super::ScreenRoot;
-use crate::game::assets::SpriteAssets;
+use crate::game::assets::{atlas_image, SpriteAssets};
 
 /// Icon size in px on screen (icons are 128px atlas cells).
 const ICON_PX: f32 = 44.0;
@@ -83,14 +83,4 @@ fn sync_weapon_bar(
             atlas_image(&sprite_assets, index),
         ));
     }
-}
-
-fn atlas_image(assets: &SpriteAssets, index: usize) -> ImageNode {
-    ImageNode::from_atlas_image(
-        assets.atlas.clone(),
-        TextureAtlas {
-            layout: assets.layout.clone(),
-            index,
-        },
-    )
 }
