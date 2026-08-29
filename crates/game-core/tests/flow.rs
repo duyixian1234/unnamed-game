@@ -709,6 +709,86 @@ fn melee_swing_hits_every_enemy_in_radius_once() {
     }
 }
 
+/// Count the live `MeleeHit` entities this frame (spawns are visible for the
+/// 0.15 s they stay alive, so per-frame sampling over a full swing window
+/// cannot miss one).
+fn count_live_melee_hits(app: &mut App) -> usize {
+    let mut melee = app
+        .world_mut()
+        .query_filtered::<Entity, With<MeleeHit>>();
+    melee.iter(app.world()).count()
+}
+
+#[test]
+fn melee_swing_only_fires_when_an_enemy_is_in_range() {
+    let mut app = headless(42, 5, false);
+    // Isolate from wave spawns so swing triggers come only from the enemies
+    // placed below.
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+    keep_only_weapon(&mut app, WeaponKind::MeleeSwing);
+
+    // No enemies at all: across two swing cooldown cycles (~1.8 s) not a
+    // single MeleeHit may spawn — the swing must not flash over empty ground.
+    let mut melee_seen = 0;
+    for _ in 0..132 {
+        step(&mut app);
+        melee_seen += count_live_melee_hits(&mut app);
+    }
+    assert_eq!(melee_seen, 0, "no swing with no enemies on the field");
+
+    // A tanky enemy just past the swing reach (range 90 + body 31 < 200):
+    // still no swing, the gate is a reach check, not a "has any enemy" check.
+    let far = app
+        .world_mut()
+        .spawn((
+            Enemy {
+                kind: EnemyKind::MeleeRusher,
+                speed: 0.0,
+                health: f32::MAX,
+                split_depth: 0,
+            },
+            Transform::from_xyz(200.0, 0.0, 0.0),
+        ))
+        .id();
+    for _ in 0..66 {
+        step(&mut app);
+        melee_seen += count_live_melee_hits(&mut app);
+    }
+    assert_eq!(melee_seen, 0, "no swing while the enemy is out of reach");
+
+    // The enemy steps into reach (x=70 < 90 + 31): swings begin. The cooldown
+    // has been ticking the whole time, so the first in-range boundary fires
+    // within one cycle (~0.9 s); assert on landed hits to prove the swing
+    // both spawned and connected.
+    app.world_mut().despawn(far);
+    app.world_mut().spawn((
+        Enemy {
+            kind: EnemyKind::MeleeRusher,
+            speed: 0.0,
+            health: 100.0,
+            split_depth: 0,
+        },
+        Transform::from_xyz(70.0, 0.0, 0.0),
+    ));
+    let mut steps = 0;
+    while steps < 120 {
+        step(&mut app);
+        steps += 1;
+        if app.world().resource::<Recording>().hits >= 1 {
+            break;
+        }
+    }
+    assert!(
+        app.world().resource::<Recording>().hits >= 1,
+        "an in-range enemy must trigger the swing"
+    );
+}
+
 #[test]
 fn wave_lifecycle_events_and_loadout_persistence() {
     let mut app = headless(42, 3, false);

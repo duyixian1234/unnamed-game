@@ -3,7 +3,7 @@
 use bevy::math::Vec2;
 use bevy::prelude::*;
 
-use crate::combat::CombatSet;
+use crate::combat::{circle_hits_enemy, CombatSet};
 use crate::enemy::Enemy;
 use crate::player::{Player, PlayerStats};
 use crate::GameState;
@@ -153,7 +153,7 @@ fn auto_attack(
     mut commands: Commands,
     players: Query<(&Transform, &PlayerStats), With<Player>>,
     mut weapons: Query<&mut Weapon, Without<Player>>,
-    enemies: Query<&Transform, (With<Enemy>, Without<Player>)>,
+    enemies: Query<(&Transform, &Enemy), Without<Player>>,
 ) {
     let Ok((player_transform, stats)) = players.single() else {
         return;
@@ -195,6 +195,20 @@ fn auto_attack(
                 ));
             }
             WeaponKind::MeleeSwing => {
+                // Gate on reach (the same formula as the hit test via
+                // combat::circle_hits_enemy), so the swing only fires — and
+                // its visual only flashes — when it can actually connect.
+                let in_reach = enemies.iter().any(|(transform, enemy)| {
+                    circle_hits_enemy(
+                        player_pos,
+                        weapon.range,
+                        transform.translation.truncate(),
+                        enemy,
+                    )
+                });
+                if !in_reach {
+                    continue;
+                }
                 let radius = weapon.range;
                 commands.spawn((
                     MeleeHit {
@@ -213,10 +227,10 @@ fn auto_attack(
 
 fn nearest_enemy(
     player_pos: Vec2,
-    enemies: &Query<&Transform, (With<Enemy>, Without<Player>)>,
+    enemies: &Query<(&Transform, &Enemy), Without<Player>>,
 ) -> Option<Vec2> {
     let mut nearest: Option<(f32, Vec2)> = None;
-    for transform in enemies {
+    for (transform, _) in enemies {
         let pos = transform.translation.truncate();
         let dist_sq = pos.distance_squared(player_pos);
         if nearest.map_or(true, |(best, _)| dist_sq < best) {

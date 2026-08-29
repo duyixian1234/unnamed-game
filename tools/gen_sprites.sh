@@ -35,11 +35,20 @@ for p in player enemy_rusher enemy_burster enemy_splitter material; do
   ffmpeg -y -i "$src" -vf "scale=128:128:flags=lanczos,colorkey=0xFF00FF:0.30:0.08" "$OUT/$p.png"
 done
 
-# Build a 3x2 atlas (384x256): player, rusher, burster / splitter, material.
+# Melee swing arc (atlas cell 5): a thin translucent white ring, drawn
+# procedurally with ffmpeg's geq (no mmx needed — the hitbox is a plain
+# circle around the player, so the visual must be exact, not generated).
+# Ring: center 64,64, inner radius 48, outer 60, 1px alpha ramp on each edge.
+ffmpeg -y -f lavfi -i "color=black@0.0:s=128x128:d=1,format=rgba" \
+  -vf "geq=r='255':g='255':b='255':a='if(between(hypot(X-63.5,Y-63.5),48,60),255*clip(min(60-hypot(X-63.5,Y-63.5),hypot(X-63.5,Y-63.5)-48),0,1),0)'" \
+  -frames:v 1 "$OUT/melee_arc.png"
+
+# Build a 3x2 atlas (384x256): player, rusher, burster / splitter, material,
+# melee arc.
 ffmpeg -y \
   -i "$OUT/player.png" -i "$OUT/enemy_rusher.png" -i "$OUT/enemy_burster.png" \
-  -i "$OUT/enemy_splitter.png" -i "$OUT/material.png" \
-  -filter_complex "[0]scale=128:128[p];[1]scale=128:128[r];[2]scale=128:128[b];[3]scale=128:128[s];[4]scale=128:128[m];[p][r]hstack[top0];[top0][b]hstack[top];[s][m]hstack[bot];[bot]pad=384:128:0:0:color=#00000000[botpad];[top][botpad]vstack[atlas]" \
+  -i "$OUT/enemy_splitter.png" -i "$OUT/material.png" -i "$OUT/melee_arc.png" \
+  -filter_complex "[0]scale=128:128[p];[1]scale=128:128[r];[2]scale=128:128[b];[3]scale=128:128[s];[4]scale=128:128[m];[5]scale=128:128[a];[p][r]hstack[top0];[top0][b]hstack[top];[s][m]hstack[bot0];[bot0][a]hstack[bot];[top][bot]vstack[atlas]" \
   -map "[atlas]" "$OUT/atlas.png"
 
 echo "Sprites baked into $OUT/atlas.png"

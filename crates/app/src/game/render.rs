@@ -2,8 +2,8 @@
 //!
 //! The simulation spawns entities with components + `Transform` (scale
 //! included) only; these systems watch for newly added sim components and
-//! insert the matching `Sprite` (ADR-0004). Weapon visuals (projectile /
-//! melee / orb) are pure-color sprites defined here.
+//! insert the matching `Sprite` (ADR-0004). Projectile / orb visuals are
+//! pure-color sprites defined here; the melee swing uses the atlas ring.
 
 use bevy::prelude::*;
 
@@ -85,15 +85,21 @@ fn attach_projectile_sprite(
     }
 }
 
+/// The melee swing renders as the atlas ring (cell 5), scaled to the hitbox:
+/// the ring sits at ~84% of the swing radius inside the 128px cell (ring
+/// geometry generated in tools/gen_sprites.sh), so the drawn ring lands just
+/// inside the actual hit radius. Tinted translucent so the 0.15 s flash reads
+/// as a quick pulse, not a wall.
 fn attach_melee_sprite(
     mut commands: Commands,
-    melee_hits: Query<(&MeleeHit, Entity), (Added<MeleeHit>, Without<Sprite>)>,
+    sprite_assets: Res<SpriteAssets>,
+    mut melee_hits: Query<(Entity, &MeleeHit, &mut Transform), (Added<MeleeHit>, Without<Sprite>)>,
 ) {
-    for (melee, entity) in &melee_hits {
+    for (entity, melee, mut transform) in &mut melee_hits {
+        transform.scale = Vec3::splat(melee.radius * 2.0 / ATLAS_CELL as f32);
         commands.entity(entity).insert(Sprite {
-            color: Color::srgba(1.0, 1.0, 1.0, 0.5),
-            custom_size: Some(Vec2::splat(melee.radius * 2.0)),
-            ..default()
+            color: Color::srgba(1.0, 1.0, 1.0, 0.6),
+            ..atlas_sprite(&sprite_assets, atlas_index::MELEE_SWING)
         });
     }
 }

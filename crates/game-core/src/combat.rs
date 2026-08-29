@@ -83,6 +83,14 @@ fn apply_damage(
     commands.entity(enemy_entity).despawn();
 }
 
+/// True when a circle of `radius` centered at `pos` overlaps an enemy's body.
+/// Single source of the "attacker radius + enemy body" reach shape, shared by
+/// the projectile / melee / orb hit tests and the melee fire gate in weapon.rs.
+pub(crate) fn circle_hits_enemy(pos: Vec2, radius: f32, enemy_pos: Vec2, enemy: &Enemy) -> bool {
+    let combined = radius + enemy.radius();
+    pos.distance_squared(enemy_pos) <= combined * combined
+}
+
 /// Collide piercing projectiles with enemies: apply damage and kill them.
 ///
 /// A projectile may pass through (pierce) multiple enemies but only strikes a
@@ -104,8 +112,7 @@ fn resolve_projectile_hits(
                 continue;
             }
             let enemy_pos = enemy_transform.translation.truncate();
-            let combined = proj_radius + enemy.radius();
-            if proj_pos.distance_squared(enemy_pos) > combined * combined {
+            if !circle_hits_enemy(proj_pos, proj_radius, enemy_pos, &enemy) {
                 continue;
             }
             projectile.hit_enemies.push(enemy_entity);
@@ -141,8 +148,7 @@ fn resolve_melee_hits(
                 continue;
             }
             let enemy_pos = enemy_transform.translation.truncate();
-            let combined = melee_radius + enemy.radius();
-            if melee_pos.distance_squared(enemy_pos) > combined * combined {
+            if !circle_hits_enemy(melee_pos, melee_radius, enemy_pos, &enemy) {
                 continue;
             }
             melee.hit_enemies.push(enemy_entity);
@@ -178,8 +184,7 @@ fn resolve_orb_hits(
                 continue;
             }
             let enemy_pos = enemy_transform.translation.truncate();
-            let combined = orb_radius + enemy.radius();
-            if orb_pos.distance_squared(enemy_pos) > combined * combined {
+            if !circle_hits_enemy(orb_pos, orb_radius, enemy_pos, &enemy) {
                 continue;
             }
             orb.hit_enemies.push(enemy_entity);
