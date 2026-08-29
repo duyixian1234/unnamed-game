@@ -17,20 +17,19 @@ default := "dev"
 
 # ---- Development -----------------------------------------------------------
 
-# Build web artifacts into dist/ + rebuild on file change (no server; `just serve` for the browser loop)
+# Wasm browser dev loop: serves at http://127.0.0.1:8080 + auto-builds/reloads on file change
 # CARGO_INCREMENTAL=0: wasm incremental cache on Windows triggers rustc os error 5
 # ("did not finalize incremental compilation session directory") and adds little.
 @dev:
-    $env:CARGO_INCREMENTAL='0'; cd crates/app; trunk watch
+    Write-Host "Serving at http://127.0.0.1:8080" -ForegroundColor Cyan
+    $env:CARGO_INCREMENTAL='0'; cd crates/app; trunk serve --port 8080
 
 # Native dev loop (fastest iteration path, ADR-0003)
 @dev-native:
     cargo run -p unnamed-game
 
-# Wasm browser dev server (trunk serve, pinned to 8080 + auto-builds/reloads on change)
-@serve:
-    Write-Host "Serving at http://127.0.0.1:8080" -ForegroundColor Cyan
-    $env:CARGO_INCREMENTAL='0'; cd crates/app; trunk serve --port 8080
+# Alias for `dev` (wasm browser dev server on 8080)
+@serve: dev
 
 # ---- Checks ----------------------------------------------------------------
 
