@@ -17,15 +17,15 @@ use bevy::state::state::{NextState, State, StateTransitionEvent};
 use bevy::time::TimeUpdateStrategy;
 
 use game_core::ai::AiPlugin;
-use game_core::combat::{EnemyDied, PlayerHurt};
+use game_core::combat::{EnemyDied, HitSfx, PlayerHurt};
 use game_core::economy::{MaterialPickedUp, Materials};
 use game_core::enemy::{Enemy, EnemyKind, EnemySpawned};
 use game_core::intent::{PlayerMoveIntent, PurchaseRequest};
 use game_core::player::{Health, Player, PlayerStats};
 use game_core::rng::Seed;
 use game_core::shop::ItemPurchased;
-use game_core::waves::{Wave, WaveConfig};
-use game_core::weapon::OrbitOrb;
+use game_core::waves::{Wave, WaveCompleted, WaveConfig, WaveStarted};
+use game_core::weapon::{MeleeHit, OrbitOrb, Projectile, Weapon, WeaponKind};
 use game_core::{CorePlugin, GameState, RunEnded, RunOutcome, RunStarted};
 
 /// Fixed timestep of the test harness.
@@ -38,8 +38,11 @@ struct Recording {
     spawns: Vec<EnemyKind>,
     deaths: Vec<EnemyKind>,
     hurts: Vec<f32>,
+    hits: u32,
     pickups: Vec<u32>,
     purchases: Vec<ItemPurchased>,
+    wave_starts: Vec<u32>,
+    wave_completes: Vec<u32>,
     run_started: u32,
     run_ends: Vec<RunOutcome>,
 }
@@ -50,8 +53,11 @@ fn record(
     mut spawns: MessageReader<EnemySpawned>,
     mut deaths: MessageReader<EnemyDied>,
     mut hurts: MessageReader<PlayerHurt>,
+    mut hits: MessageReader<HitSfx>,
     mut pickups: MessageReader<MaterialPickedUp>,
     mut purchases: MessageReader<ItemPurchased>,
+    mut wave_starts: MessageReader<WaveStarted>,
+    mut wave_completes: MessageReader<WaveCompleted>,
     mut run_starts: MessageReader<RunStarted>,
     mut run_ends: MessageReader<RunEnded>,
     mut rec: ResMut<Recording>,
@@ -70,11 +76,18 @@ fn record(
     for hurt in hurts.read() {
         rec.hurts.push(hurt.hp_after);
     }
+    rec.hits += hits.read().count() as u32;
     for pickup in pickups.read() {
         rec.pickups.push(pickup.amount);
     }
     for purchase in purchases.read() {
         rec.purchases.push(*purchase);
+    }
+    for start in wave_starts.read() {
+        rec.wave_starts.push(start.number);
+    }
+    for complete in wave_completes.read() {
+        rec.wave_completes.push(complete.number);
     }
     rec.run_started += run_starts.read().count() as u32;
     for end in run_ends.read() {
@@ -93,7 +106,10 @@ fn headless(seed: u64, max_waves: u32, with_ai: bool) -> App {
     // manual instant instead of the system clock; `step` moves it by STEP.
     app.insert_resource(TimeUpdateStrategy::ManualInstant(std::time::Instant::now()));
     app.insert_resource(Seed(seed));
-    app.insert_resource(WaveConfig { max_waves });
+    app.insert_resource(WaveConfig {
+        max_waves,
+        spawning: true,
+    });
     app.insert_resource(Recording::default());
     app.add_plugins(CorePlugin);
     if with_ai {
@@ -346,6 +362,27 @@ fn catalog_index(needle: &str) -> usize {
         .expect("item in shop catalog")
 }
 
+/// Despawn every starting weapon slot except `keep`, plus any live hitbox
+/// entities, so the weapon under test is the only attacker. Scenario setup:
+/// `update_orbs` re-spawns orbs only while an OrbitingOrb slot exists, so
+/// removing the slot removes the orb permanently.
+fn keep_only_weapon(app: &mut App, keep: WeaponKind) {
+    let mut weapons = app.world_mut().query::<(Entity, &Weapon)>();
+    let doomed: Vec<Entity> = weapons
+        .iter(app.world())
+        .filter(|(_, weapon)| weapon.kind != keep)
+        .map(|(entity, _)| entity)
+        .collect();
+    for entity in doomed {
+        app.world_mut().despawn(entity);
+    }
+    let mut strays = app.world_mut().query_filtered::<Entity, Or<(With<Projectile>, With<MeleeHit>, With<OrbitOrb>)>>();
+    let stray_ids: Vec<Entity> = strays.iter(app.world()).collect();
+    for entity in stray_ids {
+        app.world_mut().despawn(entity);
+    }
+}
+
 /// Spawn a static one-hit enemy inside the orbiting orb's kill ring (the orb
 /// circles at radius 70 around the player, so x=70 is struck within a frame
 /// or two), letting the weapon system kill it without wave interference.
@@ -496,4 +533,230 @@ fn splitter_death_splits_twice_then_stops() {
         "field is empty after the chain"
     );
     assert_eq!(current_state(&app), GameState::InGame, "still mid-wave (no shop/victory)");
+}
+
+#[test]
+fn contact_damage_is_gated_by_invulnerability_and_scales_by_kind() {
+    let mut app = headless(42, 5, false);
+    // Isolate from wave spawns: only the enemies placed below touch the player.
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+
+    // Phase 1: a MeleeRusher glued to the player (10 contact damage). The
+    // 0.6 s invulnerability window gates the first hit and every repeat.
+    let rusher = app
+        .world_mut()
+        .spawn((
+            Enemy {
+                kind: EnemyKind::MeleeRusher,
+                speed: 0.0,
+                health: f32::MAX,
+                split_depth: 0,
+            },
+            Transform::from_xyz(0.0, 0.0, 0.0),
+        ))
+        .id();
+    for _ in 0..138 {
+        step(&mut app); // 2.3 s
+    }
+    let phase1 = app.world().resource::<Recording>().hurts.clone();
+    assert!(
+        (2..=4).contains(&phase1.len()),
+        "one hit per ~0.6 s window, got {}: {:?}",
+        phase1.len(),
+        phase1
+    );
+    assert!(
+        phase1.iter().all(|hp_after| *hp_after <= 100.0 - 10.0),
+        "MeleeRusher deals 10 per hit: {:?}",
+        phase1
+    );
+
+    // Phase 2: swap the enemy for a SpeedBurster (6 contact damage).
+    app.world_mut().despawn(rusher);
+    app.world_mut().spawn((
+        Enemy {
+            kind: EnemyKind::SpeedBurster,
+            speed: 0.0,
+            health: f32::MAX,
+            split_depth: 0,
+        },
+        Transform::from_xyz(0.0, 0.0, 0.0),
+    ));
+    for _ in 0..78 {
+        step(&mut app); // 1.3 s
+    }
+    let rec = app.world().resource::<Recording>();
+    let phase2 = &rec.hurts[phase1.len()..];
+    assert!(
+        (1..=3).contains(&phase2.len()),
+        "burster also gated by the window, got {}: {:?}",
+        phase2.len(),
+        phase2
+    );
+    assert!(
+        phase2.iter().all(|hp_after| *hp_after <= 100.0 - 30.0 - 6.0),
+        "SpeedBurster deals 6 per hit: {:?}",
+        phase2
+    );
+    // hp_after decreases by exactly the per-kind amount between hits.
+    let mut all = phase1.clone();
+    all.extend_from_slice(phase2);
+    for pair in all.windows(2) {
+        let drop = pair[0] - pair[1];
+        assert!(
+            [10.0, 6.0].contains(&drop),
+            "each hit drops HP by a per-kind amount, got {drop}: {all:?}"
+        );
+    }
+}
+
+#[test]
+fn piercing_projectile_hits_each_enemy_once() {
+    let mut app = headless(42, 5, false);
+    // Isolate from wave spawns so no stray enemy crosses the shot's path.
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+    keep_only_weapon(&mut app, WeaponKind::PiercingProjectile);
+
+    // Two tanky enemies aligned on +X: one shot pierces both.
+    for x in [100.0, 300.0] {
+        app.world_mut().spawn((
+            Enemy {
+                kind: EnemyKind::MeleeRusher,
+                speed: 0.0,
+                health: 100.0,
+                split_depth: 0,
+            },
+            Transform::from_xyz(x, 0.0, 0.0),
+        ));
+    }
+
+    // First volley fires at ~0.8 s and reaches x=300 by ~1.5 s; break before
+    // the second volley (~1.6 s).
+    let mut steps = 0;
+    while steps < 150 {
+        step(&mut app);
+        steps += 1;
+        if app.world().resource::<Recording>().hits >= 2 {
+            break;
+        }
+    }
+
+    let rec = app.world().resource::<Recording>();
+    assert_eq!(rec.hits, 2, "each enemy struck exactly once (pierce, no re-hit)");
+    assert!(rec.deaths.is_empty(), "tanky enemies survive the single hit");
+    let mut enemies = app.world_mut().query::<&Enemy>();
+    let healths: Vec<f32> = enemies.iter(app.world()).map(|e| e.health).collect();
+    assert_eq!(healths.len(), 2);
+    for health in healths {
+        assert_eq!(health, 90.0, "exactly one 10-damage hit per enemy");
+    }
+}
+
+#[test]
+fn melee_swing_hits_every_enemy_in_radius_once() {
+    let mut app = headless(42, 5, false);
+    // Isolate from wave spawns so hit counts come only from the swing.
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+    keep_only_weapon(&mut app, WeaponKind::MeleeSwing);
+
+    // Three tanky enemies inside the swing ring (radius 90 + body 31) but
+    // outside contact range (65), so only the swing can touch them.
+    for (x, y) in [(70.0, 0.0), (0.0, 70.0), (-70.0, 0.0)] {
+        app.world_mut().spawn((
+            Enemy {
+                kind: EnemyKind::MeleeRusher,
+                speed: 0.0,
+                health: 100.0,
+                split_depth: 0,
+            },
+            Transform::from_xyz(x, y, 0.0),
+        ));
+    }
+
+    // First swing fires at ~0.9 s; break before the second (~1.8 s).
+    let mut steps = 0;
+    while steps < 120 {
+        step(&mut app);
+        steps += 1;
+        if app.world().resource::<Recording>().hits >= 3 {
+            break;
+        }
+    }
+
+    let rec = app.world().resource::<Recording>();
+    assert_eq!(rec.hits, 3, "one swing hit all three enemies, once each");
+    assert!(rec.deaths.is_empty(), "no enemy died to the first swing");
+    let mut enemies = app.world_mut().query::<&Enemy>();
+    let healths: Vec<f32> = enemies.iter(app.world()).map(|e| e.health).collect();
+    assert_eq!(healths.len(), 3);
+    for health in healths {
+        assert_eq!(health, 75.0, "exactly one 25-damage hit per enemy");
+    }
+}
+
+#[test]
+fn wave_lifecycle_events_and_loadout_persistence() {
+    let mut app = headless(42, 3, false);
+    app.update();
+    start_run(&mut app);
+
+    let mut buffed = false;
+    let mut shop_visits = 0u32;
+    let mut steps = 0;
+    while steps < 10_000 {
+        if !buffed {
+            buff_player(&mut app);
+            buffed = true;
+        }
+        if current_state(&app) == GameState::Shop {
+            shop_visits += 1;
+            // Both before and after a Shop→InGame re-entry the starting
+            // loadout must still be exactly three slots (no re-grant).
+            let mut weapons = app.world_mut().query::<&Weapon>();
+            assert_eq!(
+                weapons.iter(app.world()).count(),
+                3,
+                "starting loadout granted exactly once (shop visit {})",
+                shop_visits
+            );
+            set_next_state(&mut app, GameState::InGame);
+        }
+        step(&mut app);
+        steps += 1;
+        if current_state(&app) == GameState::Victory {
+            break;
+        }
+    }
+
+    assert_eq!(current_state(&app), GameState::Victory);
+    assert!(shop_visits >= 2, "should have re-entered the shop at least once");
+    let rec = app.world().resource::<Recording>();
+    assert_eq!(rec.wave_starts, vec![1, 2, 3], "waves ascend from 1");
+    assert_eq!(rec.wave_completes, vec![1, 2, 3], "each wave completes (the last, then Victory)");
+    assert_eq!(rec.run_started, 1, "exactly one RunStarted for the run");
+    // Every wave start (after the first) is immediately preceded by the
+    // previous wave's completion.
+    for (i, start) in rec.wave_starts.iter().enumerate().skip(1) {
+        let prev = rec.wave_completes[i - 1];
+        assert_eq!(
+            *start,
+            prev + 1,
+            "WaveStarted({start}) must follow WaveCompleted({prev})"
+        );
+    }
 }

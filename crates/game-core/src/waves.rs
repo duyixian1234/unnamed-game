@@ -26,15 +26,20 @@ const BASE_SPAWN_INTERVAL: f32 = 1.1;
 const WAVE_DURATION: f32 = 30.0;
 
 /// How many waves a Run lasts. Configurable so tests can run short
-/// full-flow games (CONTEXT.md: wave count configurable).
+/// full-flow games (CONTEXT.md: wave count configurable). `spawning` can be
+/// switched off so weapon/combat tests run in InGame without wave spawns.
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct WaveConfig {
     pub max_waves: u32,
+    pub spawning: bool,
 }
 
 impl Default for WaveConfig {
     fn default() -> Self {
-        Self { max_waves: 20 }
+        Self {
+            max_waves: 20,
+            spawning: true,
+        }
     }
 }
 
@@ -177,10 +182,14 @@ fn advance_wave(
 fn spawn_from_edges(
     time: Res<Time>,
     mut wave: ResMut<Wave>,
+    config: Res<WaveConfig>,
     mut commands: Commands,
     mut rng: ResMut<GlobalRng>,
     mut spawn_writer: MessageWriter<EnemySpawned>,
 ) {
+    if !config.spawning {
+        return;
+    }
     wave.spawn_timer.tick(time.delta());
     if !wave.spawn_timer.just_finished() {
         return;
