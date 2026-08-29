@@ -484,6 +484,30 @@ fn defeat_returns_to_menu_and_resets_the_run() {
     app.update();
     start_run_with_weapon(&mut app, WeaponKind::OrbitingOrb);
 
+    let target = app
+        .world_mut()
+        .spawn((
+            Enemy {
+                kind: EnemyKind::MeleeRusher,
+                speed: 0.0,
+                health: 1000.0,
+                split_depth: 0,
+            },
+            Transform::from_xyz(100.0, 0.0, 0.0),
+        ))
+        .id();
+    for _ in 0..90 {
+        step(&mut app);
+        if app.world().resource::<DamageStats>().run.total() > 0.0 {
+            break;
+        }
+    }
+    assert!(
+        app.world().resource::<DamageStats>().run.total() > 0.0,
+        "first run must contain damage before reset"
+    );
+    app.world_mut().despawn(target);
+
     // Scenario setup: a lethal-immune enemy is placed on top of the player.
     let mut players = app.world_mut().query_filtered::<&Transform, With<Player>>();
     let player_pos = *players
@@ -524,6 +548,10 @@ fn defeat_returns_to_menu_and_resets_the_run() {
         1,
         "wave counter reset"
     );
+    let damage = app.world().resource::<DamageStats>();
+    assert_eq!(damage.current_wave.total(), 0.0, "current wave reset");
+    assert_eq!(damage.last_wave.total(), 0.0, "wave snapshot reset");
+    assert_eq!(damage.run.total(), 0.0, "run damage reset");
 
     // A fresh run spawns a fresh player at full health.
     start_run_with_weapon(&mut app, WeaponKind::OrbitingOrb);
@@ -1660,15 +1688,18 @@ fn melee_lv6_whirlwind_hits_continuously_without_swing_rhythm() {
     evolve_via_choice(&mut app, WeaponKind::MeleeSwing);
 
     // A tanky enemy well inside the blade reach (radius 90 + body 22).
-    app.world_mut().spawn((
-        Enemy {
-            kind: EnemyKind::MeleeRusher,
-            speed: 0.0,
-            health: 1.0e6,
-            split_depth: 0,
-        },
-        Transform::from_xyz(40.0, 0.0, 0.0),
-    ));
+    let enemy_entity = app
+        .world_mut()
+        .spawn((
+            Enemy {
+                kind: EnemyKind::MeleeRusher,
+                speed: 0.0,
+                health: 100_000.0,
+                split_depth: 0,
+            },
+            Transform::from_xyz(40.0, 0.0, 0.0),
+        ))
+        .id();
 
     let mut first_hit_frame = None;
     let mut melee_seen = 0;
@@ -1698,6 +1729,21 @@ fn melee_lv6_whirlwind_hits_continuously_without_swing_rhythm() {
         melee_seen, 0,
         "no discrete MeleeHit hitboxes after the evolution"
     );
+    let enemy = app
+        .world()
+        .get::<Enemy>(enemy_entity)
+        .expect("tanky enemy survives");
+    let attributed = app
+        .world()
+        .resource::<DamageStats>()
+        .run
+        .slot(WeaponSlot(0))
+        .expect("whirlwind damage attributed to source slot")
+        .effective_damage;
+    assert!(
+        (attributed - (100_000.0 - enemy.health)).abs() < 0.1,
+        "all whirlwind damage stays on the originating slot"
+    );
 }
 
 #[test]
@@ -1712,15 +1758,18 @@ fn piercing_lv6_splitshot_spawns_fan_shards_on_first_hit() {
     evolve_via_choice(&mut app, WeaponKind::PiercingProjectile);
 
     // A tanky enemy downrange on +X.
-    app.world_mut().spawn((
-        Enemy {
-            kind: EnemyKind::MeleeRusher,
-            speed: 0.0,
-            health: 1.0e6,
-            split_depth: 0,
-        },
-        Transform::from_xyz(300.0, 0.0, 0.0),
-    ));
+    let enemy_entity = app
+        .world_mut()
+        .spawn((
+            Enemy {
+                kind: EnemyKind::MeleeRusher,
+                speed: 0.0,
+                health: 100_000.0,
+                split_depth: 0,
+            },
+            Transform::from_xyz(300.0, 0.0, 0.0),
+        ))
+        .id();
 
     let mut saw_first_hit = false;
     let mut saw_shards = false;
@@ -1747,15 +1796,26 @@ fn piercing_lv6_splitshot_spawns_fan_shards_on_first_hit() {
     );
 
     // Shards inherit 50% damage: parent (10) + at least one shard (5).
-    let mut enemies = app.world_mut().query::<&Enemy>();
-    let health = enemies
-        .single(app.world())
+    let health = app
+        .world()
+        .get::<Enemy>(enemy_entity)
         .expect("tanky enemy alive")
         .health;
     assert!(
-        1.0e6 - health >= 15.0 - 1e-3,
+        100_000.0 - health >= 15.0 - 1e-3,
         "shard damage must land beyond the parent's hit, total {}",
-        1.0e6 - health
+        100_000.0 - health
+    );
+    let attributed = app
+        .world()
+        .resource::<DamageStats>()
+        .run
+        .slot(WeaponSlot(0))
+        .expect("splitshot damage attributed to source slot")
+        .effective_damage;
+    assert!(
+        (attributed - (100_000.0 - health)).abs() < 0.1,
+        "parent and shard damage stay on the originating slot"
     );
 }
 
@@ -1778,7 +1838,7 @@ fn orb_lv6_bomber_orb_explodes_on_contact_and_respawns() {
             Enemy {
                 kind: EnemyKind::MeleeRusher,
                 speed: 0.0,
-                health: 1.0e9,
+                health: 100_000.0,
                 split_depth: 0,
             },
             Transform::from_xyz(70.0, 0.0, 0.0),
@@ -1813,6 +1873,28 @@ fn orb_lv6_bomber_orb_explodes_on_contact_and_respawns() {
     assert!(
         exploded,
         "the AOE explosion must reach the witness at x=140 (orb contact cannot)"
+    );
+    let contact_health = app
+        .world()
+        .get::<Enemy>(contact)
+        .expect("contact enemy survives")
+        .health;
+    let witness_health = app
+        .world()
+        .get::<Enemy>(witness)
+        .expect("witness survives")
+        .health;
+    let attributed = app
+        .world()
+        .resource::<DamageStats>()
+        .run
+        .slot(WeaponSlot(0))
+        .expect("bomber damage attributed to source slot")
+        .effective_damage;
+    let removed_health = 100_000.0 - contact_health + 1000.0 - witness_health;
+    assert!(
+        (attributed - removed_health).abs() < 0.1,
+        "contact and explosion damage stay on the originating slot"
     );
 
     // The orb stays absent for its 0.6 second respawn window.
