@@ -8,9 +8,11 @@
 target = "index.html"
 dist = "../../dist"
 public_url = "/"
+# NOTE: wasm-opt is NOT configured here — trunk 0.21 only reads the level from
+# the rust asset's `data-wasm-opt` attribute in index.html (release builds).
 
 [serve]
-address = "127.0.0.1"
+addresses = ["127.0.0.1"]
 port = 8080
 
 # Assets are copied by index.html's `<link data-trunk rel="copy-dir"
