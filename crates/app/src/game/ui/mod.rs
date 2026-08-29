@@ -6,10 +6,14 @@ pub mod end_screen;
 pub mod hud;
 pub mod main_menu;
 pub mod shop;
+pub mod starting_weapon;
 pub mod upgrade;
 pub mod weapon_bar;
 
 use bevy::prelude::*;
+
+use game_core::damage::DamageStats;
+use game_core::weapon::MAX_WEAPON_SLOTS;
 
 /// Plugin for all UI screens.
 pub struct UIPlugin;
@@ -21,6 +25,7 @@ impl Plugin for UIPlugin {
             hud::HudPlugin,
             main_menu::MainMenuPlugin,
             shop::ShopPlugin,
+            starting_weapon::StartingWeaponPlugin,
             upgrade::UpgradeScreenPlugin,
             weapon_bar::WeaponBarPlugin,
         ));
@@ -39,4 +44,58 @@ pub fn ui_font(asset_server: &AssetServer, font_size: f32) -> TextFont {
         font_size,
         ..default()
     }
+}
+
+/// Format the stable slot-ordered damage summary shared by upgrade and end
+/// screens. Empty slots stay hidden; non-zero Other damage remains visible.
+pub fn damage_summary_text(stats: &DamageStats, incomplete_label: bool) -> String {
+    let mut lines = Vec::new();
+    let wave_label = if incomplete_label {
+        "本波（未完成）"
+    } else {
+        "本波"
+    };
+    lines.push(format!(
+        "伤害统计　{}主数据　·　Run累计次级数据",
+        wave_label
+    ));
+
+    let mut has_slot = false;
+    for index in 0..MAX_WEAPON_SLOTS as u8 {
+        let last = stats.last_wave.slot(index);
+        let run = stats.run.slot(index);
+        let Some(slot) = last.or(run) else {
+            continue;
+        };
+        has_slot = true;
+        let last_damage = last.map_or(0.0, |value| value.effective_damage);
+        let run_damage = run.map_or(0.0, |value| value.effective_damage);
+        lines.push(format!(
+            "槽位{} · {}　{}：{} 伤害 / {:.1}%　累计：{} / {:.1}%",
+            index + 1,
+            slot.kind.display_name(),
+            wave_label,
+            last_damage.round() as i32,
+            stats.last_wave.percentage(last_damage),
+            run_damage.round() as i32,
+            stats.run.percentage(run_damage),
+        ));
+    }
+
+    if stats.last_wave.other > 0.0 || stats.run.other > 0.0 {
+        has_slot = true;
+        lines.push(format!(
+            "其他伤害　{}：{} 伤害 / {:.1}%　累计：{} / {:.1}%",
+            wave_label,
+            stats.last_wave.other.round() as i32,
+            stats.last_wave.percentage(stats.last_wave.other),
+            stats.run.other.round() as i32,
+            stats.run.percentage(stats.run.other),
+        ));
+    }
+
+    if !has_slot {
+        lines.push("暂无伤害数据".to_string());
+    }
+    lines.join("\n")
 }

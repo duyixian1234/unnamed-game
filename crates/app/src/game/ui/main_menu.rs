@@ -1,4 +1,4 @@
-//! Main menu screen: a title and a Start button that begins the game.
+//! Main menu screen: a title and a Start button that opens weapon selection.
 
 use bevy::prelude::*;
 
@@ -76,7 +76,7 @@ fn start_button(
     for (interaction, mut color) in &mut interaction {
         match *interaction {
             Interaction::Pressed => {
-                next_state.set(GameState::InGame);
+                next_state.set(GameState::StartingWeaponChoice);
             }
             Interaction::Hovered => {
                 *color = BackgroundColor(Color::srgb(0.3, 0.5, 0.9));

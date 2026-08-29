@@ -7,11 +7,12 @@
 
 use bevy::prelude::*;
 
+use game_core::damage::DamageStats;
 use game_core::upgrade::{UpgradeSelected, WeaponLevels, UPGRADE_PATHS};
-use game_core::weapon::WeaponKind;
+use game_core::weapon::{StartingWeapon, WeaponKind};
 use game_core::GameState;
 
-use super::{ui_font, ScreenRoot};
+use super::{damage_summary_text, ui_font, ScreenRoot};
 
 /// A clickable upgrade option button, tagged with its target path + option.
 #[derive(Component)]
@@ -24,6 +25,9 @@ struct UpgradeButton {
 #[derive(Component)]
 struct UpgradeAnyButton(Color);
 
+#[derive(Component)]
+struct DamageSummaryText;
+
 /// Plugin for the upgrade-choice screen.
 pub struct UpgradeScreenPlugin;
 
@@ -33,7 +37,8 @@ impl Plugin for UpgradeScreenPlugin {
             .add_systems(OnExit(GameState::UpgradeChoice), despawn_upgrade_screen)
             .add_systems(
                 Update,
-                (request_upgrades, button_hover).run_if(in_state(GameState::UpgradeChoice)),
+                (request_upgrades, update_damage_summary, button_hover)
+                    .run_if(in_state(GameState::UpgradeChoice)),
             );
     }
 }
@@ -42,6 +47,8 @@ fn spawn_upgrade_screen(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     levels: Res<WeaponLevels>,
+    starting_weapon: Res<StartingWeapon>,
+    damage_stats: Res<DamageStats>,
 ) {
     commands
         .spawn((
@@ -65,11 +72,46 @@ fn spawn_upgrade_screen(
                 ui_font(&asset_server, 36.0),
                 TextColor(Color::WHITE),
             ));
+            parent
+                .spawn(Node {
+                    width: Val::Percent(100.0),
+                    max_width: Val::Px(1120.0),
+                    padding: UiRect::all(Val::Px(10.0)),
+                    margin: UiRect::vertical(Val::Px(4.0)),
+                    ..default()
+                })
+                .with_child((
+                    DamageSummaryText,
+                    Text::new(damage_summary_text(&damage_stats, false)),
+                    ui_font(&asset_server, 16.0),
+                    TextColor(Color::srgb(0.78, 0.82, 0.90)),
+                ));
 
-            for path in UPGRADE_PATHS {
-                spawn_path_ui(parent, &asset_server, path, levels.level(path.kind));
+            if let Some(kind) = starting_weapon.selected {
+                if let Some(path) = UPGRADE_PATHS.iter().find(|path| path.kind == kind) {
+                    spawn_path_ui(parent, &asset_server, path, levels.level(path.kind));
+                }
+            } else {
+                parent.spawn((
+                    Text::new("尚未选择武器"),
+                    ui_font(&asset_server, 24.0),
+                    TextColor(Color::srgb(0.8, 0.4, 0.4)),
+                ));
             }
         });
+}
+
+fn update_damage_summary(
+    damage_stats: Res<DamageStats>,
+    mut summary: Query<&mut Text, With<DamageSummaryText>>,
+) {
+    if !damage_stats.is_changed() {
+        return;
+    }
+    let text = damage_summary_text(&damage_stats, false);
+    for mut summary in &mut summary {
+        summary.0 = text.clone();
+    }
 }
 
 /// One weapon's column: header (with current level), the fixed full route

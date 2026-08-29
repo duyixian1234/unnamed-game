@@ -2,15 +2,20 @@
 //!
 //! The simulation spawns entities with components + `Transform` (scale
 //! included) only; these systems watch for newly added sim components and
-//! insert the matching `Sprite` (ADR-0004). All visuals use atlas cells; the
-//! melee swing is tinted translucent here.
+//! insert the matching `Sprite` or procedural geometry (ADR-0004). Regular
+//! visuals use atlas cells; evolution effects are drawn as geometry here.
 
 use bevy::prelude::*;
+
+use bevy::asset::RenderAssetUsages;
+use bevy::render::render_resource::PrimitiveTopology;
 
 use game_core::economy::Material;
 use game_core::enemy::Enemy;
 use game_core::player::Player;
-use game_core::weapon::{MeleeHit, OrbitOrb, Projectile};
+use game_core::weapon::{
+    BomberExplosion, MeleeHit, OrbitOrb, Projectile, Whirlwind, ORB_HIT_RADIUS,
+};
 
 use super::assets::{atlas_index, atlas_sprite, SpriteAssets, ATLAS_CELL};
 /// Plugin attaching sprites to simulation entities.
@@ -27,6 +32,10 @@ impl Plugin for RenderPlugin {
                 attach_projectile_sprite,
                 attach_melee_sprite,
                 attach_orb_sprite,
+                attach_whirlwind_visual,
+                animate_whirlwinds,
+                attach_bomber_explosion_visual,
+                animate_bomber_explosions,
             ),
         );
     }
@@ -124,11 +133,119 @@ fn attach_orb_sprite(
     mut orbs: Query<(Entity, &mut Transform), (Added<OrbitOrb>, Without<Sprite>)>,
 ) {
     // The sim spawns orbs unscaled; render at 18px to exactly match the
-    // orb hitbox (combat.rs: orb_radius = 9.0).
+    // orb hitbox.
     for (entity, mut transform) in &mut orbs {
-        transform.scale = Vec3::splat(18.0 / ATLAS_CELL as f32);
+        transform.scale = Vec3::splat(ORB_HIT_RADIUS * 2.0 / ATLAS_CELL as f32);
         commands
             .entity(entity)
             .insert(atlas_sprite(&sprite_assets, atlas_index::ORB));
+    }
+}
+
+/// Build a hollow ring from triangles so effect size is expressed directly in
+/// gameplay units: its outer diameter is exactly `2 * radius`.
+fn ring_mesh(radius: f32, thickness: f32) -> Mesh {
+    let segments = 48;
+    let inner_radius = (radius - thickness).max(1.0);
+    let mut positions = Vec::with_capacity(segments * 6);
+    for segment in 0..segments {
+        let start = segment as f32 / segments as f32 * std::f32::consts::TAU;
+        let end = (segment + 1) as f32 / segments as f32 * std::f32::consts::TAU;
+        let point =
+            |distance: f32, angle: f32| [distance * angle.cos(), distance * angle.sin(), 0.0];
+        let outer_start = point(radius, start);
+        let outer_end = point(radius, end);
+        let inner_start = point(inner_radius, start);
+        let inner_end = point(inner_radius, end);
+        positions.extend([
+            outer_start,
+            outer_end,
+            inner_end,
+            outer_start,
+            inner_end,
+            inner_start,
+        ]);
+    }
+
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh
+}
+
+fn attach_whirlwind_visual(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut whirlwinds: Query<(Entity, &Whirlwind, &mut Transform), Added<Whirlwind>>,
+) {
+    for (entity, whirlwind, mut transform) in &mut whirlwinds {
+        transform.translation.z = 0.2;
+        let mesh = meshes.add(ring_mesh(whirlwind.radius, 7.0));
+        let material = materials.add(ColorMaterial::from(Color::srgba(1.0, 0.78, 0.22, 0.9)));
+        commands
+            .entity(entity)
+            .insert((Mesh2d(mesh), MeshMaterial2d(material)));
+    }
+}
+
+fn animate_whirlwinds(
+    time: Res<Time>,
+    mut whirlwinds: Query<(&mut Transform, &Whirlwind, &MeshMaterial2d<ColorMaterial>)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for (mut transform, whirlwind, material) in &mut whirlwinds {
+        let duration = whirlwind.pulse.duration().as_secs_f32();
+        let phase = if duration > 0.0 {
+            whirlwind.pulse.elapsed_secs() / duration
+        } else {
+            0.0
+        };
+        let alpha = 0.68 + 0.22 * (phase * std::f32::consts::TAU).sin();
+        transform.rotation = Quat::from_rotation_z(time.elapsed_secs() * 3.0);
+        transform.scale = Vec3::ONE;
+        if let Some(material) = materials.get_mut(&material.0) {
+            material.color = Color::srgba(1.0, 0.78, 0.22, alpha);
+        }
+    }
+}
+
+fn attach_bomber_explosion_visual(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut explosions: Query<(Entity, &BomberExplosion, &mut Transform), Added<BomberExplosion>>,
+) {
+    for (entity, explosion, mut transform) in &mut explosions {
+        transform.translation.z = 0.3;
+        let mesh = meshes.add(ring_mesh(explosion.radius, 8.0));
+        let material = materials.add(ColorMaterial::from(Color::srgba(1.0, 0.35, 0.12, 0.85)));
+        commands
+            .entity(entity)
+            .insert((Mesh2d(mesh), MeshMaterial2d(material)));
+    }
+}
+
+fn animate_bomber_explosions(
+    mut explosions: Query<(
+        &BomberExplosion,
+        &mut Transform,
+        &MeshMaterial2d<ColorMaterial>,
+    )>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for (explosion, mut transform, material) in &mut explosions {
+        let duration = explosion.lifetime.duration().as_secs_f32();
+        let progress = if duration > 0.0 {
+            (explosion.lifetime.elapsed_secs() / duration).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        transform.scale = Vec3::ONE;
+        if let Some(material) = materials.get_mut(&material.0) {
+            material.color = Color::srgba(1.0, 0.35, 0.12, 0.85 * (1.0 - progress));
+        }
     }
 }
