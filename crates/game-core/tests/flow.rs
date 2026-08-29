@@ -18,7 +18,7 @@ use bevy::time::TimeUpdateStrategy;
 
 use game_core::ai::AiPlugin;
 use game_core::combat::{EnemyDied, HitSfx, PlayerHurt};
-use game_core::economy::{MaterialPickedUp, Materials};
+use game_core::economy::{Material, MaterialPickedUp, Materials};
 use game_core::enemy::{Enemy, EnemyKind, EnemySpawned};
 use game_core::intent::{PlayerMoveIntent, PurchaseRequest};
 use game_core::player::{Health, Player, PlayerStats};
@@ -888,6 +888,166 @@ fn wave_end_heals_half_of_max_hp() {
     let health = players.single(app.world()).expect("player persists across waves");
     assert_eq!(health.max, 100.0);
     assert_eq!(health.current, 90.0, "wave end recovers 50% of max HP");
+}
+
+/// Spawn a material drop directly on the field (scenario setup).
+fn spawn_material_at(app: &mut App, x: f32, y: f32) -> Entity {
+    app.world_mut()
+        .spawn((Material { value: 1 }, Transform::from_xyz(x, y, 0.0)))
+        .id()
+}
+
+/// Count the live `Material` entities on the field.
+fn count_materials(app: &mut App) -> usize {
+    let mut q = app.world_mut().query_filtered::<Entity, With<Material>>();
+    q.iter(app.world()).count()
+}
+
+#[test]
+fn material_within_attraction_radius_flies_to_player_and_is_collected() {
+    let mut app = headless(42, 5, false);
+    // Isolate from wave spawns; no enemies means no stray drops.
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+
+    // One material inside the base attraction radius (26), one far outside.
+    spawn_material_at(&mut app, 24.0, 0.0);
+    let far = spawn_material_at(&mut app, 200.0, 0.0);
+
+    let mut steps = 0;
+    while app.world().resource::<Materials>().count == 0 && steps < 60 {
+        step(&mut app);
+        steps += 1;
+    }
+    assert_eq!(
+        app.world().resource::<Materials>().count, 1,
+        "material inside the attraction radius was collected"
+    );
+    assert_eq!(
+        count_materials(&mut app), 1,
+        "the far material still lies on the field"
+    );
+    let mut far_q = app.world_mut().query::<(&Transform, &Material)>();
+    let (transform, _) = far_q.get(app.world(), far).expect("far material alive");
+    assert!(
+        (transform.translation.x - 200.0).abs() < 0.01,
+        "material outside the attraction radius must not move"
+    );
+
+    // Boost the radius past the far material's distance (scenario setup):
+    // it must now fly — its position changes toward the player — then land.
+    let mut players = app
+        .world_mut()
+        .query_filtered::<&mut PlayerStats, With<Player>>();
+    players.single_mut(app.world_mut()).unwrap().attraction_radius = 220.0;
+    step(&mut app);
+    let (transform, _) = far_q.get(app.world(), far).unwrap();
+    assert!(
+        transform.translation.x < 200.0,
+        "attracted material flies toward the player"
+    );
+    let mut steps = 0;
+    while count_materials(&mut app) > 0 && steps < 120 {
+        step(&mut app);
+        steps += 1;
+    }
+    assert_eq!(count_materials(&mut app), 0, "attracted material landed");
+    assert_eq!(app.world().resource::<Materials>().count, 2);
+    let pickups = &app.world().resource::<Recording>().pickups;
+    assert_eq!(pickups, &vec![1, 1], "two pickups of value 1 each");
+}
+
+#[test]
+fn shop_item_extends_the_attraction_radius() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+
+    // Buy the magnet item in the shop (vacuum is a no-op: no materials yet).
+    set_next_state(&mut app, GameState::Shop);
+    step(&mut app);
+    app.world_mut().resource_mut::<Materials>().count = 30;
+    let magnet = catalog_index("Magnet Arm");
+    let magnet_cost = game_core::shop::SHOP_ITEMS[magnet].cost;
+    send_purchase(&mut app, magnet);
+    step(&mut app);
+    let mut players = app
+        .world_mut()
+        .query_filtered::<&PlayerStats, With<Player>>();
+    let stats = players.single(app.world()).expect("player in shop");
+    assert_eq!(
+        stats.attraction_radius, 50.0,
+        "Magnet Arm raised the attraction radius from 26 to 50"
+    );
+
+    // Back in the wave: a drop between the old and new radius now collects.
+    set_next_state(&mut app, GameState::InGame);
+    step(&mut app);
+    spawn_material_at(&mut app, 40.0, 0.0); // 26 < 40 <= 50
+    let mut steps = 0;
+    let expected = 30 - magnet_cost + 1;
+    while app.world().resource::<Materials>().count < expected && steps < 120 {
+        step(&mut app);
+        steps += 1;
+    }
+    assert_eq!(
+        app.world().resource::<Materials>().count,
+        expected,
+        "boosted attraction radius pulled in the drop"
+    );
+}
+
+#[test]
+fn wave_end_vacuums_all_remaining_materials_into_the_wallet() {
+    let mut app = headless(42, 3, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 3,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+
+    // Three drops far outside the attraction radius: they survive the wave
+    // and must all be credited when the wave closes.
+    spawn_material_at(&mut app, 300.0, 0.0);
+    spawn_material_at(&mut app, -300.0, 0.0);
+    spawn_material_at(&mut app, 0.0, 300.0);
+
+    // Nothing collected mid-wave (invariant holds while still in the wave).
+    let mut steps = 0;
+    while steps < 2_400 {
+        step(&mut app);
+        steps += 1;
+        if current_state(&app) != GameState::InGame {
+            break;
+        }
+        assert_eq!(
+            app.world().resource::<Materials>().count, 0,
+            "unattracted materials must stay uncollected mid-wave"
+        );
+    }
+    assert_eq!(current_state(&app), GameState::Shop, "wave 1 completed");
+    assert_eq!(
+        app.world().resource::<Materials>().count, 3,
+        "wave end vacuum credited every remaining material"
+    );
+    assert_eq!(count_materials(&mut app), 0, "no material entities remain");
+    let pickups: Vec<u32> = app
+        .world()
+        .resource::<Recording>()
+        .pickups
+        .iter()
+        .copied()
+        .collect();
+    assert_eq!(pickups, vec![1, 1, 1], "vacuum announced each pickup");
 }
 
 #[test]

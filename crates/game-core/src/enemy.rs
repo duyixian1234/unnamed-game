@@ -71,7 +71,17 @@ pub struct EnemyPlugin;
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<EnemySpawned>()
-            .add_systems(Update, (enemy_pursuit, despawn_off_world));
+            .add_systems(
+                Update,
+                (
+                    // Knockback impulses are written by combat resolution;
+                    // integrate them after that write in the same frame so
+                    // the hit-frame push does not depend on ambiguous
+                    // scheduler ordering.
+                    enemy_pursuit.after(crate::combat::CombatSet::ResolveDamage),
+                    despawn_off_world,
+                ),
+            );
     }
 }
 

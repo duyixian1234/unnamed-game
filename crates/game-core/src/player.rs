@@ -40,6 +40,10 @@ const HIT_INVULNERABILITY: f32 = 0.6;
 #[derive(Component)]
 pub struct HitCooldown(pub Timer);
 
+/// Base attraction radius: dropped materials within this distance of the
+/// player fly to them (boostable by shop items).
+pub const BASE_ATTRACTION_RADIUS: f32 = 26.0;
+
 /// Player stats that shop items can boost (pure stat-gain items per CONTEXT.md).
 #[derive(Component)]
 pub struct PlayerStats {
@@ -49,6 +53,8 @@ pub struct PlayerStats {
     pub speed_mult: f32,
     /// Bonus max HP added at spawn (used by +HP items).
     pub max_hp_bonus: f32,
+    /// Dropped materials within this distance fly to the player.
+    pub attraction_radius: f32,
 }
 
 impl Default for PlayerStats {
@@ -57,6 +63,7 @@ impl Default for PlayerStats {
             damage_mult: 1.0,
             speed_mult: 1.0,
             max_hp_bonus: 0.0,
+            attraction_radius: BASE_ATTRACTION_RADIUS,
         }
     }
 }

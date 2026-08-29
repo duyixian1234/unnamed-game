@@ -37,6 +37,11 @@ pub const SHOP_ITEMS: &[ShopItem] = &[
         cost: 20,
         apply: |s| s.max_hp_bonus += 25.0,
     },
+    ShopItem {
+        name: "Magnet Arm (+24 attraction)",
+        cost: 12,
+        apply: |s| s.attraction_radius += 24.0,
+    },
 ];
 
 /// A purchase succeeded.
