@@ -145,6 +145,10 @@ fn attach_orb_sprite(
 /// Build a hollow ring from triangles so effect size is expressed directly in
 /// gameplay units: its outer diameter is exactly `2 * radius`.
 fn ring_mesh(radius: f32, thickness: f32) -> Mesh {
+    mesh_from_positions(ring_positions(radius, thickness))
+}
+
+fn ring_positions(radius: f32, thickness: f32) -> Vec<[f32; 3]> {
     let segments = 48;
     let inner_radius = (radius - thickness).max(1.0);
     let mut positions = Vec::with_capacity(segments * 6);
@@ -166,7 +170,28 @@ fn ring_mesh(radius: f32, thickness: f32) -> Mesh {
             inner_start,
         ]);
     }
+    positions
+}
 
+/// Build a ring with three inward-facing blades. The blade tips stay on the
+/// real hit radius while their asymmetric shape makes rotation visible.
+fn whirlwind_mesh(radius: f32, thickness: f32) -> Mesh {
+    let mut positions = ring_positions(radius, thickness);
+    positions.reserve(3 * 3);
+    let point = |distance: f32, angle: f32| [distance * angle.cos(), distance * angle.sin(), 0.0];
+    for blade in 0..3 {
+        let angle = blade as f32 / 3.0 * std::f32::consts::TAU;
+        positions.extend([
+            point(radius, angle),
+            point(radius * 0.56, angle - 0.10),
+            point(radius * 0.72, angle + 0.28),
+        ]);
+    }
+
+    mesh_from_positions(positions)
+}
+
+fn mesh_from_positions(positions: Vec<[f32; 3]>) -> Mesh {
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
@@ -183,7 +208,7 @@ fn attach_whirlwind_visual(
 ) {
     for (entity, whirlwind, mut transform) in &mut whirlwinds {
         transform.translation.z = 0.2;
-        let mesh = meshes.add(ring_mesh(whirlwind.radius, 7.0));
+        let mesh = meshes.add(whirlwind_mesh(whirlwind.radius, 7.0));
         let material = materials.add(ColorMaterial::from(Color::srgba(1.0, 0.78, 0.22, 0.9)));
         commands
             .entity(entity)

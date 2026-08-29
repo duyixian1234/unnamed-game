@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use crate::damage::{DamageSource, DamageStats};
 use crate::enemy::{Enemy, EnemyKind, EnemySpawned, Knockback};
 use crate::player::{Health, HitCooldown, Player, ATLAS_CELL_PX, PLAYER_RADIUS};
-use crate::weapon::{MeleeHit, OrbitOrb, Projectile};
+use crate::weapon::{MeleeHit, OrbitOrb, Projectile, ORB_REHIT};
 use crate::GameState;
 
 /// Fired when a weapon lands a hit on an enemy (the app plays a sound).
@@ -205,14 +205,8 @@ fn resolve_orb_hits(
         let orb_radius = crate::weapon::ORB_HIT_RADIUS;
 
         for (enemy_entity, mut enemy, enemy_transform, mut knockback) in &mut enemies {
-            if let Some((_, timer)) = orb
-                .hit_cooldowns
-                .iter_mut()
-                .find(|(entity, _)| *entity == enemy_entity)
-            {
-                if !timer.is_finished() {
-                    continue;
-                }
+            if !hit_cooldown_ready(&orb.hit_cooldowns, enemy_entity) {
+                continue;
             }
             let enemy_pos = enemy_transform.translation.truncate();
             if !circle_hits_enemy(orb_pos, orb_radius, enemy_pos, &enemy) {
@@ -233,18 +227,26 @@ fn resolve_orb_hits(
             );
             let dir = (enemy_pos - orb_pos).normalize_or_zero();
             knockback.0 += dir * orb.knockback;
-            match orb
-                .hit_cooldowns
-                .iter_mut()
-                .find(|(entity, _)| *entity == enemy_entity)
-            {
-                Some((_, timer)) => timer.reset(),
-                None => orb.hit_cooldowns.push((
-                    enemy_entity,
-                    Timer::from_seconds(crate::weapon::ORB_REHIT, TimerMode::Once),
-                )),
-            }
+            restart_hit_cooldown(&mut orb.hit_cooldowns, enemy_entity, ORB_REHIT);
         }
+    }
+}
+
+pub(crate) fn hit_cooldown_ready(cooldowns: &[(Entity, Timer)], target: Entity) -> bool {
+    cooldowns
+        .iter()
+        .find(|(entity, _)| *entity == target)
+        .is_none_or(|(_, timer)| timer.is_finished())
+}
+
+pub(crate) fn restart_hit_cooldown(
+    cooldowns: &mut Vec<(Entity, Timer)>,
+    target: Entity,
+    duration: f32,
+) {
+    match cooldowns.iter_mut().find(|(entity, _)| *entity == target) {
+        Some((_, timer)) => timer.reset(),
+        None => cooldowns.push((target, Timer::from_seconds(duration, TimerMode::Once))),
     }
 }
 

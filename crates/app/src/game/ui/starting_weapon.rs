@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
 
 use game_core::upgrade::path_for;
-use game_core::weapon::{StartingWeapon, StartingWeaponSelected, WeaponKind};
+use game_core::weapon::{StartingWeapon, StartingWeaponSelected, Weapon, WeaponKind};
 use game_core::GameState;
 
 use super::{ui_font, ScreenRoot};
@@ -131,11 +131,7 @@ fn spawn_starting_weapon_screen(
                     ..default()
                 })
                 .with_children(|cards| {
-                    for kind in [
-                        WeaponKind::PiercingProjectile,
-                        WeaponKind::MeleeSwing,
-                        WeaponKind::OrbitingOrb,
-                    ] {
+                    for kind in WeaponKind::ALL {
                         spawn_weapon_card(cards, &asset_server, &sprite_assets, kind);
                     }
                 });
@@ -193,7 +189,9 @@ fn spawn_weapon_card(
     sprite_assets: &SpriteAssets,
     kind: WeaponKind,
 ) {
-    let (role, stats, evolution) = card_copy(kind);
+    let weapon = Weapon::new(kind);
+    let path = path_for(kind);
+    let stats = base_stats_copy(&weapon);
     parent
         .spawn((
             WeaponCard { kind },
@@ -226,7 +224,7 @@ fn spawn_weapon_card(
                 TextColor(Color::WHITE),
             ));
             card.spawn((
-                Text::new(format!("定位：{}", role)),
+                Text::new(format!("定位：{}", kind.playstyle())),
                 ui_font(asset_server, 17.0),
                 TextColor(Color::srgb(0.62, 0.78, 0.96)),
             ));
@@ -236,29 +234,38 @@ fn spawn_weapon_card(
                 TextColor(Color::srgb(0.88, 0.88, 0.92)),
             ));
             card.spawn((
-                Text::new(format!("Lv6 质变：{}", evolution)),
+                Text::new(format!(
+                    "Lv6 质变：{}：{}",
+                    path.evolution.name(),
+                    path.evolution.description()
+                )),
                 ui_font(asset_server, 17.0),
                 TextColor(Color::srgb(0.93, 0.70, 0.86)),
             ));
         });
 }
 
-fn card_copy(kind: WeaponKind) -> (&'static str, &'static str, &'static str) {
-    match kind {
-        WeaponKind::PiercingProjectile => (
-            "远程穿透",
-            "伤害 24 · 冷却 0.6 秒 · 射程 900",
-            "散裂弹：首次命中后分裂为 3 枚扇形弹片",
+fn base_stats_copy(weapon: &Weapon) -> String {
+    match weapon.kind {
+        WeaponKind::PiercingProjectile => format!(
+            "伤害 {:.0} · 冷却 {:.1} 秒 · 射程 {:.0}",
+            weapon.damage,
+            weapon.cooldown.duration().as_secs_f32(),
+            weapon.range
         ),
-        WeaponKind::MeleeSwing => (
-            "近身爆发",
-            "伤害 40 · 冷却 0.7 秒 · 范围 105 · 击退 150",
-            "旋风刃：刀刃持续环绕旋转，移动不打断攻击",
+        WeaponKind::MeleeSwing => format!(
+            "伤害 {:.0} · 冷却 {:.1} 秒 · 范围 {:.0} · 击退 {:.0}",
+            weapon.damage,
+            weapon.cooldown.duration().as_secs_f32(),
+            weapon.range,
+            weapon.knockback_impulse()
         ),
-        WeaponKind::OrbitingOrb => (
-            "贴身持续",
-            "伤害 70 · 环绕半径 100 · 环绕速度 10.0 · 击退 180",
-            "自爆卫星：接触敌人时爆炸，0.6 秒后重生",
+        WeaponKind::OrbitingOrb => format!(
+            "伤害 {:.0} · 环绕半径 {:.0} · 环绕速度 {:.1} · 击退 {:.0}",
+            weapon.damage,
+            weapon.orbit_radius,
+            weapon.orbit_speed,
+            weapon.knockback_impulse()
         ),
     }
 }
@@ -346,11 +353,11 @@ fn update_choice_visuals(
     for mut text in &mut selection_text {
         text.0 = match ui_state.selected {
             Some(kind) => format!(
-                "已选择：{}　·　再次按 Enter / Space 确认",
+                "已选择：{}　·　再次按回车键或空格键确认",
                 kind.display_name()
             ),
             None => format!(
-                "当前预览：{}　·　点击卡片或按 Enter / Space 选择",
+                "当前预览：{}　·　点击卡片或按回车键或空格键选择",
                 ui_state.focused.display_name()
             ),
         };
@@ -369,11 +376,7 @@ fn keyboard_choice(
     mut ui_state: ResMut<StartingWeaponUiState>,
     mut selections: MessageWriter<StartingWeaponSelected>,
 ) {
-    let kinds = [
-        WeaponKind::PiercingProjectile,
-        WeaponKind::MeleeSwing,
-        WeaponKind::OrbitingOrb,
-    ];
+    let kinds = WeaponKind::ALL;
     let current = kinds
         .iter()
         .position(|kind| *kind == ui_state.focused)

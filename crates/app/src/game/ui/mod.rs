@@ -12,7 +12,7 @@ pub mod weapon_bar;
 
 use bevy::prelude::*;
 
-use game_core::damage::{DamageStats, WeaponSlot};
+use game_core::damage::{DamagePeriod, DamageStats, WeaponSlot};
 use game_core::weapon::MAX_WEAPON_SLOTS;
 
 /// Plugin for all UI screens.
@@ -56,7 +56,7 @@ pub fn damage_summary_text(stats: &DamageStats, incomplete_label: bool) -> Strin
         "本波"
     };
     lines.push(format!(
-        "伤害统计　{}主数据　·　Run累计次级数据",
+        "伤害统计　{}主数据　·　整局累计次级数据",
         wave_label
     ));
 
@@ -71,26 +71,22 @@ pub fn damage_summary_text(stats: &DamageStats, incomplete_label: bool) -> Strin
         let last_damage = last.map_or(0.0, |value| value.effective_damage);
         let run_damage = run.map_or(0.0, |value| value.effective_damage);
         lines.push(format!(
-            "槽位{} · {}　{}：{} 伤害 / {:.1}%　累计：{} / {:.1}%",
+            "槽位{} · {}　{}：{}　累计：{}",
             index + 1,
             slot.kind.display_name(),
             wave_label,
-            last_damage.round() as i32,
-            stats.last_wave.percentage(last_damage),
-            run_damage.round() as i32,
-            stats.run.percentage(run_damage),
+            format_damage(&stats.last_wave, last_damage),
+            format_damage(&stats.run, run_damage),
         ));
     }
 
     if stats.last_wave.other > 0.0 || stats.run.other > 0.0 {
         has_slot = true;
         lines.push(format!(
-            "其他伤害　{}：{} 伤害 / {:.1}%　累计：{} / {:.1}%",
+            "其他伤害　{}：{}　累计：{}",
             wave_label,
-            stats.last_wave.other.round() as i32,
-            stats.last_wave.percentage(stats.last_wave.other),
-            stats.run.other.round() as i32,
-            stats.run.percentage(stats.run.other),
+            format_damage(&stats.last_wave, stats.last_wave.other),
+            format_damage(&stats.run, stats.run.other),
         ));
     }
 
@@ -98,4 +94,26 @@ pub fn damage_summary_text(stats: &DamageStats, incomplete_label: bool) -> Strin
         lines.push("暂无伤害数据".to_string());
     }
     lines.join("\n")
+}
+
+fn format_damage(period: &DamagePeriod, damage: f32) -> String {
+    if period.total() <= 0.0 {
+        "0 伤害 · 0%".to_string()
+    } else {
+        format!(
+            "{} 伤害 · {:.1}%",
+            damage.round() as i32,
+            period.percentage(damage)
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_damage_uses_stable_percentage_format() {
+        assert_eq!(format_damage(&DamagePeriod::default(), 0.0), "0 伤害 · 0%");
+    }
 }

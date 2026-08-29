@@ -3,7 +3,9 @@
 use bevy::math::Vec2;
 use bevy::prelude::*;
 
-use crate::combat::{apply_damage, circle_hits_enemy, CombatSet};
+use crate::combat::{
+    apply_damage, circle_hits_enemy, hit_cooldown_ready, restart_hit_cooldown, CombatSet,
+};
 use crate::damage::{DamageSource, DamageStats, WeaponSlot};
 use crate::enemy::{Enemy, Knockback};
 use crate::player::{Player, PlayerStats};
@@ -22,12 +24,28 @@ pub enum WeaponKind {
 }
 
 impl WeaponKind {
+    /// Stable order used by weapon-selection UI and deterministic tests.
+    pub const ALL: [Self; 3] = [
+        Self::PiercingProjectile,
+        Self::MeleeSwing,
+        Self::OrbitingOrb,
+    ];
+
     /// Chinese display name (per ADR-0007, UI is Chinese).
     pub fn display_name(self) -> &'static str {
         match self {
             WeaponKind::PiercingProjectile => "穿透弹",
             WeaponKind::MeleeSwing => "近战弧光",
             WeaponKind::OrbitingOrb => "环绕球",
+        }
+    }
+
+    /// Short description of the weapon's intended playstyle.
+    pub fn playstyle(self) -> &'static str {
+        match self {
+            WeaponKind::PiercingProjectile => "远程穿透",
+            WeaponKind::MeleeSwing => "近身爆发",
+            WeaponKind::OrbitingOrb => "贴身持续",
         }
     }
 
@@ -610,14 +628,8 @@ fn resolve_whirlwind_hits(
             .retain(|(entity, _)| enemies.contains(*entity));
 
         for (enemy_entity, mut enemy, enemy_transform, mut knockback) in &mut enemies {
-            if let Some((_, timer)) = whirlwind
-                .hit_cooldowns
-                .iter_mut()
-                .find(|(e, _)| *e == enemy_entity)
-            {
-                if !timer.is_finished() {
-                    continue;
-                }
+            if !hit_cooldown_ready(&whirlwind.hit_cooldowns, enemy_entity) {
+                continue;
             }
             let enemy_pos = enemy_transform.translation.truncate();
             if !circle_hits_enemy(whirlwind_pos, whirlwind.radius, enemy_pos, &enemy) {
@@ -637,17 +649,7 @@ fn resolve_whirlwind_hits(
             );
             let dir = (enemy_pos - whirlwind_pos).normalize_or_zero();
             knockback.0 += dir * whirlwind.knockback;
-            match whirlwind
-                .hit_cooldowns
-                .iter_mut()
-                .find(|(e, _)| *e == enemy_entity)
-            {
-                Some((_, timer)) => timer.reset(),
-                None => whirlwind.hit_cooldowns.push((
-                    enemy_entity,
-                    Timer::from_seconds(WHIRLWIND_REHIT, TimerMode::Once),
-                )),
-            }
+            restart_hit_cooldown(&mut whirlwind.hit_cooldowns, enemy_entity, WHIRLWIND_REHIT);
         }
     }
 }
