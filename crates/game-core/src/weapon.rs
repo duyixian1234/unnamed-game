@@ -275,6 +275,7 @@ fn select_starting_weapon(
 }
 
 /// Hand the player the selected starting Weapon when a Run begins.
+#[allow(clippy::type_complexity)]
 fn give_starting_weapons(
     mut commands: Commands,
     starting_weapon: Res<StartingWeapon>,
@@ -582,6 +583,7 @@ fn update_whirlwind(
 
 /// The whirlwind damages every enemy in reach continuously: a per-enemy
 /// re-hit cooldown spreads strikes out instead of hitting every frame.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn resolve_whirlwind_hits(
     time: Res<Time>,
     mut commands: Commands,
@@ -684,6 +686,7 @@ fn splitshot_on_first_hit(
 /// Bomber Orb evolution: an orb that touched an enemy this tick explodes in a
 /// small AOE (skipping enemies the contact hit already damaged) and despawns;
 /// `update_orbs` respawns it next frame.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn bomber_orb_explosions(
     mut commands: Commands,
     mut death_writer: MessageWriter<crate::combat::EnemyDied>,
@@ -709,7 +712,8 @@ fn bomber_orb_explosions(
         let mut victims: Vec<(Entity, Vec2)> = Vec::new();
         for (enemy_entity, enemy, enemy_transform, _) in &enemies {
             let enemy_pos = enemy_transform.translation.truncate();
-            if circle_hits_enemy(orb_pos, BOMBER_AOE_RADIUS, enemy_pos, &enemy) {
+            if enemy.health > 0.0 && circle_hits_enemy(orb_pos, BOMBER_AOE_RADIUS, enemy_pos, enemy)
+            {
                 victims.push((enemy_entity, enemy_pos));
             }
         }

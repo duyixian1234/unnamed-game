@@ -66,6 +66,7 @@ impl Plugin for CombatPlugin {
 /// Apply damage to an enemy; despawn and emit `EnemyDied` (with splitter
 /// children) if it drops to zero health. Shared by the core hit resolution
 /// and the evolution behaviors (whirlwind strikes, bomber AOE) in weapon.rs.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_damage(
     commands: &mut Commands,
     death_writer: &mut MessageWriter<EnemyDied>,
@@ -77,6 +78,9 @@ pub(crate) fn apply_damage(
     source: DamageSource,
     damage_stats: &mut DamageStats,
 ) {
+    if enemy.health <= 0.0 {
+        return;
+    }
     let effective_damage = amount.min(enemy.health.max(0.0));
     enemy.health -= amount;
     damage_stats.record(source, effective_damage);

@@ -112,6 +112,7 @@ impl Plugin for WavesPlugin {
 /// enemies, projectiles, orbs, melee hitboxes, whirlwinds, and dropped
 /// materials. The player is kept across waves but despawned on Victory/Defeat
 /// by `clear_player`.
+#[allow(clippy::too_many_arguments)]
 fn clear_combat_entities(
     mut commands: Commands,
     enemies: Query<Entity, With<Enemy>>,
