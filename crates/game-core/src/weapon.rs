@@ -30,15 +30,6 @@ impl WeaponKind {
         }
     }
 
-    /// ASCII name for the upgrade screen (its text is ASCII-only).
-    pub fn ascii_name(self) -> &'static str {
-        match self {
-            WeaponKind::PiercingProjectile => "Piercing Shot",
-            WeaponKind::MeleeSwing => "Melee Swing",
-            WeaponKind::OrbitingOrb => "Orbiting Orb",
-        }
-    }
-
     /// Knockback impulse strength (initial velocity, units/s) applied to
     /// enemies on each damaging hit. Melee is strongest (self-defense), the
     /// orb weakest (it re-hits every frame while touching).

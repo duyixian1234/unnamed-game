@@ -2,8 +2,8 @@
 //! Lv6 evolution) plus clickable options. Choice logic lives in game-core;
 //! buttons send an `UpgradeSelected` message (same path as the test AI).
 //! The screen is rebuilt on every entry, so the offered pair always matches
-//! the current level. This screen's text is ASCII-only (font subset covers
-//! no new glyphs).
+//! the current level. Text is Chinese (ADR-0007) — add new copy to
+//! `tools/ui_text.txt` and re-run `tools/gen_font.sh`.
 
 use bevy::prelude::*;
 
@@ -61,7 +61,7 @@ fn spawn_upgrade_screen(
         ))
         .with_children(|parent| {
             parent.spawn((
-                Text::new("WEAPON UPGRADE - pick one per wave"),
+                Text::new("武器升级 · 每波选择一次"),
                 ui_font(&asset_server, 36.0),
                 TextColor(Color::WHITE),
             ));
@@ -91,7 +91,7 @@ fn spawn_path_ui(
         })
         .with_children(|weapon_node| {
             weapon_node.spawn((
-                Text::new(format!("{}  Lv {}/6", path.kind.ascii_name(), level)),
+                Text::new(format!("{}  Lv {}/6", path.kind.display_name(), level)),
                 ui_font(asset_server, 26.0),
                 TextColor(Color::srgb(0.9, 0.8, 0.4)),
             ));
@@ -115,7 +115,7 @@ fn spawn_path_ui(
             }
             weapon_node.spawn((
                 Text::new(format!(
-                    "Lv6 EVOLUTION: {} - {}",
+                    "Lv6 质变：{} · {}",
                     path.evolution.name(),
                     path.evolution.description()
                 )),
@@ -181,7 +181,7 @@ fn spawn_path_ui(
                                     BackgroundColor(Color::srgb(0.6, 0.2, 0.6)),
                                 ))
                                 .with_child((
-                                    Text::new(format!("Lv6 EVOLVE: {}", path.evolution.name())),
+                                    Text::new(format!("Lv6 进化：{}", path.evolution.name())),
                                     ui_font(asset_server, 20.0),
                                     TextColor(Color::WHITE),
                                 ));
@@ -189,7 +189,7 @@ fn spawn_path_ui(
                 }
                 _ => {
                     weapon_node.spawn((
-                        Text::new("MAX LEVEL"),
+                        Text::new("已满级"),
                         ui_font(asset_server, 20.0),
                         TextColor(Color::srgb(0.7, 0.7, 0.2)),
                     ));
