@@ -21,7 +21,6 @@ default := "dev"
 # CARGO_INCREMENTAL=0: wasm incremental cache on Windows triggers rustc os error 5
 # ("did not finalize incremental compilation session directory") and adds little.
 @dev:
-    Write-Host "Serving at http://127.0.0.1:8080" -ForegroundColor Cyan
     $env:CARGO_INCREMENTAL='0'; cd crates/app; trunk serve --port 8080
 
 # Native dev loop (fastest iteration path, ADR-0003).
