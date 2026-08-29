@@ -23,17 +23,17 @@ pub struct ShopItem {
 /// The fixed shop catalog. Pure stat-gain items (per CONTEXT.md).
 pub const SHOP_ITEMS: &[ShopItem] = &[
     ShopItem {
-        name: "Sharpened Edge (+20% damage)",
+        name: "磨砺之刃（伤害 +20%）",
         cost: 15,
         apply: |s| s.damage_mult += 0.2,
     },
     ShopItem {
-        name: "Adrenal Gland (+15% speed)",
+        name: "肾上腺（速度 +15%）",
         cost: 12,
         apply: |s| s.speed_mult += 0.15,
     },
     ShopItem {
-        name: "Titan's Heart (+25 max HP)",
+        name: "泰坦之心（最大生命 +25）",
         cost: 20,
         apply: |s| s.max_hp_bonus += 25.0,
     },

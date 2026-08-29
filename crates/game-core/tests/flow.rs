@@ -142,7 +142,9 @@ fn current_state(app: &App) -> GameState {
 }
 
 fn set_next_state(app: &mut App, state: GameState) {
-    app.world_mut().resource_mut::<NextState<GameState>>().set(state);
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(state);
 }
 
 /// Set the player's health to a huge value so flow tests cannot die
@@ -229,7 +231,9 @@ fn defeat_returns_to_menu_and_resets_the_run() {
 
     // Scenario setup: a lethal-immune enemy is placed on top of the player.
     let mut players = app.world_mut().query_filtered::<&Transform, With<Player>>();
-    let player_pos = *players.single(app.world()).expect("player spawned on wave 1");
+    let player_pos = *players
+        .single(app.world())
+        .expect("player spawned on wave 1");
     app.world_mut().spawn((
         Enemy {
             kind: EnemyKind::MeleeRusher,
@@ -248,7 +252,10 @@ fn defeat_returns_to_menu_and_resets_the_run() {
     }
     assert_eq!(current_state(&app), GameState::Defeat, "player should die");
     assert!(
-        app.world().resource::<Recording>().run_ends.contains(&RunOutcome::Defeat),
+        app.world()
+            .resource::<Recording>()
+            .run_ends
+            .contains(&RunOutcome::Defeat),
         "RunEnded(Defeat) must be announced"
     );
 
@@ -257,7 +264,11 @@ fn defeat_returns_to_menu_and_resets_the_run() {
     step(&mut app);
     assert_eq!(current_state(&app), GameState::MainMenu);
     assert_eq!(app.world().resource::<Materials>().count, 0, "wallet reset");
-    assert_eq!(app.world().resource::<Wave>().number, 1, "wave counter reset");
+    assert_eq!(
+        app.world().resource::<Wave>().number,
+        1,
+        "wave counter reset"
+    );
 
     // A fresh run spawns a fresh player at full health.
     start_run(&mut app);
@@ -376,7 +387,9 @@ fn keep_only_weapon(app: &mut App, keep: WeaponKind) {
     for entity in doomed {
         app.world_mut().despawn(entity);
     }
-    let mut strays = app.world_mut().query_filtered::<Entity, Or<(With<Projectile>, With<MeleeHit>, With<OrbitOrb>)>>();
+    let mut strays = app
+        .world_mut()
+        .query_filtered::<Entity, Or<(With<Projectile>, With<MeleeHit>, With<OrbitOrb>)>>();
     let stray_ids: Vec<Entity> = strays.iter(app.world()).collect();
     for entity in stray_ids {
         app.world_mut().despawn(entity);
@@ -409,18 +422,27 @@ fn shop_purchase_deducts_applies_and_rejects() {
 
     // Affordable +HP item: deducts cost, boosts stats, announces purchase.
     app.world_mut().resource_mut::<Materials>().count = 30;
-    let titan = catalog_index("Titan's Heart");
+    let titan = catalog_index("泰坦之心");
     let titan_cost = game_core::shop::SHOP_ITEMS[titan].cost;
     send_purchase(&mut app, titan);
     step(&mut app);
     assert_eq!(
-        app.world().resource::<Recording>().purchases.last().map(|p| (p.item_index, p.cost)),
+        app.world()
+            .resource::<Recording>()
+            .purchases
+            .last()
+            .map(|p| (p.item_index, p.cost)),
         Some((titan, titan_cost)),
         "ItemPurchased announced with catalog index and cost"
     );
-    assert_eq!(app.world().resource::<Materials>().count, 10, "cost deducted");
-    let mut players =
-        app.world_mut().query_filtered::<(&PlayerStats, &Health), With<Player>>();
+    assert_eq!(
+        app.world().resource::<Materials>().count,
+        10,
+        "cost deducted"
+    );
+    let mut players = app
+        .world_mut()
+        .query_filtered::<(&PlayerStats, &Health), With<Player>>();
     let (stats, health) = players.single(app.world()).expect("player in shop");
     assert_eq!(stats.max_hp_bonus, 25.0, "stat boost applied");
     assert_eq!(health.max, 125.0, "max HP raised by the boost");
@@ -429,11 +451,12 @@ fn shop_purchase_deducts_applies_and_rejects() {
     // Unaffordable request: rejected, wallet and stats untouched.
     app.world_mut().resource_mut::<Materials>().count = 5;
     let purchases_before = app.world().resource::<Recording>().purchases.len();
-    let sharpened = catalog_index("Sharpened Edge");
+    let sharpened = catalog_index("磨砺之刃");
     send_purchase(&mut app, sharpened); // cost 15 > wallet 5
     step(&mut app);
     assert_eq!(
-        app.world().resource::<Materials>().count, 5,
+        app.world().resource::<Materials>().count,
+        5,
         "rejected purchase must not deduct"
     );
     assert_eq!(
@@ -441,7 +464,9 @@ fn shop_purchase_deducts_applies_and_rejects() {
         purchases_before,
         "no ItemPurchased for a rejected request"
     );
-    let mut stats_only = app.world_mut().query_filtered::<&PlayerStats, With<Player>>();
+    let mut stats_only = app
+        .world_mut()
+        .query_filtered::<&PlayerStats, With<Player>>();
     let stats = stats_only.single(app.world()).unwrap();
     assert_eq!(stats.damage_mult, 1.0, "rejected boost not applied");
     assert_eq!(stats.max_hp_bonus, 25.0, "earlier purchase intact");
@@ -451,7 +476,10 @@ fn shop_purchase_deducts_applies_and_rejects() {
     send_purchase(&mut app, 99);
     step(&mut app);
     assert_eq!(app.world().resource::<Materials>().count, 5);
-    assert_eq!(app.world().resource::<Recording>().purchases.len(), purchases_before);
+    assert_eq!(
+        app.world().resource::<Recording>().purchases.len(),
+        purchases_before
+    );
 }
 
 #[test]
@@ -476,10 +504,22 @@ fn economy_loop_kill_drop_pickup() {
         steps += 1;
     }
 
-    assert_eq!(app.world().resource::<Materials>().count, 1, "pickup credited the wallet");
+    assert_eq!(
+        app.world().resource::<Materials>().count,
+        1,
+        "pickup credited the wallet"
+    );
     let rec = app.world().resource::<Recording>();
-    assert_eq!(rec.deaths, vec![EnemyKind::MeleeRusher], "enemy died exactly once");
-    assert_eq!(rec.pickups, vec![1], "one material of value 1 was picked up");
+    assert_eq!(
+        rec.deaths,
+        vec![EnemyKind::MeleeRusher],
+        "enemy died exactly once"
+    );
+    assert_eq!(
+        rec.pickups,
+        vec![1],
+        "one material of value 1 was picked up"
+    );
 }
 
 #[test]
@@ -506,7 +546,10 @@ fn splitter_death_splits_twice_then_stops() {
 
         let splits = {
             let rec = app.world().resource::<Recording>();
-            rec.spawns.iter().filter(|k| **k == EnemyKind::Splitter).count()
+            rec.spawns
+                .iter()
+                .filter(|k| **k == EnemyKind::Splitter)
+                .count()
         };
         if !first_gen_checked && splits == 2 {
             let mut enemies = app.world_mut().query::<&Enemy>();
@@ -521,8 +564,15 @@ fn splitter_death_splits_twice_then_stops() {
     }
 
     let rec = app.world().resource::<Recording>();
-    let splits = rec.spawns.iter().filter(|k| **k == EnemyKind::Splitter).count();
-    assert_eq!(splits, 6, "2 children + 4 grandchildren, then the chain stops");
+    let splits = rec
+        .spawns
+        .iter()
+        .filter(|k| **k == EnemyKind::Splitter)
+        .count();
+    assert_eq!(
+        splits, 6,
+        "2 children + 4 grandchildren, then the chain stops"
+    );
     assert_eq!(rec.deaths.len(), 7, "parent + 6 descendants die");
     assert!(rec.deaths.iter().all(|k| *k == EnemyKind::Splitter));
     assert!(first_gen_checked, "first-generation split was observed");
@@ -532,7 +582,11 @@ fn splitter_death_splits_twice_then_stops() {
         0,
         "field is empty after the chain"
     );
-    assert_eq!(current_state(&app), GameState::InGame, "still mid-wave (no shop/victory)");
+    assert_eq!(
+        current_state(&app),
+        GameState::InGame,
+        "still mid-wave (no shop/victory)"
+    );
 }
 
 #[test]
@@ -599,7 +653,9 @@ fn contact_damage_is_gated_by_invulnerability_and_scales_by_kind() {
         phase2
     );
     assert!(
-        phase2.iter().all(|hp_after| *hp_after <= 100.0 - 30.0 - 6.0),
+        phase2
+            .iter()
+            .all(|hp_after| *hp_after <= 100.0 - 30.0 - 6.0),
         "SpeedBurster deals 6 per hit: {:?}",
         phase2
     );
@@ -652,8 +708,14 @@ fn piercing_projectile_hits_each_enemy_once() {
     }
 
     let rec = app.world().resource::<Recording>();
-    assert_eq!(rec.hits, 2, "each enemy struck exactly once (pierce, no re-hit)");
-    assert!(rec.deaths.is_empty(), "tanky enemies survive the single hit");
+    assert_eq!(
+        rec.hits, 2,
+        "each enemy struck exactly once (pierce, no re-hit)"
+    );
+    assert!(
+        rec.deaths.is_empty(),
+        "tanky enemies survive the single hit"
+    );
     let mut enemies = app.world_mut().query::<&Enemy>();
     let healths: Vec<f32> = enemies.iter(app.world()).map(|e| e.health).collect();
     assert_eq!(healths.len(), 2);
@@ -713,9 +775,7 @@ fn melee_swing_hits_every_enemy_in_radius_once() {
 /// 0.15 s they stay alive, so per-frame sampling over a full swing window
 /// cannot miss one).
 fn count_live_melee_hits(app: &mut App) -> usize {
-    let mut melee = app
-        .world_mut()
-        .query_filtered::<Entity, With<MeleeHit>>();
+    let mut melee = app.world_mut().query_filtered::<Entity, With<MeleeHit>>();
     melee.iter(app.world()).count()
 }
 
@@ -824,10 +884,17 @@ fn wave_lifecycle_events_and_loadout_persistence() {
     }
 
     assert_eq!(current_state(&app), GameState::Victory);
-    assert!(shop_visits >= 2, "should have re-entered the shop at least once");
+    assert!(
+        shop_visits >= 2,
+        "should have re-entered the shop at least once"
+    );
     let rec = app.world().resource::<Recording>();
     assert_eq!(rec.wave_starts, vec![1, 2, 3], "waves ascend from 1");
-    assert_eq!(rec.wave_completes, vec![1, 2, 3], "each wave completes (the last, then Victory)");
+    assert_eq!(
+        rec.wave_completes,
+        vec![1, 2, 3],
+        "each wave completes (the last, then Victory)"
+    );
     assert_eq!(rec.run_started, 1, "exactly one RunStarted for the run");
     // Every wave start (after the first) is immediately preceded by the
     // previous wave's completion.

@@ -19,6 +19,17 @@ pub enum WeaponKind {
     OrbitingOrb,
 }
 
+impl WeaponKind {
+    /// Chinese display name (per ADR-0007, UI is Chinese).
+    pub fn display_name(self) -> &'static str {
+        match self {
+            WeaponKind::PiercingProjectile => "穿透弹",
+            WeaponKind::MeleeSwing => "近战弧光",
+            WeaponKind::OrbitingOrb => "环绕球",
+        }
+    }
+}
+
 /// A single equipped weapon. Lives on a child entity (a "slot") of the player,
 /// so the player can carry up to `MAX_WEAPON_SLOTS` weapons.
 #[derive(Component)]
@@ -123,6 +134,7 @@ impl Plugin for WeaponPlugin {
 
 /// Hand the player a starting loadout (one of each weapon kind) when a run
 /// begins. Slots are child entities so up to `MAX_WEAPON_SLOTS` can be held.
+#[allow(clippy::type_complexity)] // three disambiguation filters on the slot query
 fn give_starting_weapons(
     mut commands: Commands,
     players: Query<(Entity, &Transform), (With<Player>, Without<WeaponLoadout>)>,
@@ -139,7 +151,10 @@ fn give_starting_weapons(
         );
         for kind in kinds {
             let slot = commands
-                .spawn((Weapon::new(kind), Transform::from_translation(player_transform.translation)))
+                .spawn((
+                    Weapon::new(kind),
+                    Transform::from_translation(player_transform.translation),
+                ))
                 .id();
             commands.entity(player).add_child(slot);
         }
@@ -233,7 +248,7 @@ fn nearest_enemy(
     for (transform, _) in enemies {
         let pos = transform.translation.truncate();
         let dist_sq = pos.distance_squared(player_pos);
-        if nearest.map_or(true, |(best, _)| dist_sq < best) {
+        if nearest.is_none_or(|(best, _)| dist_sq < best) {
             nearest = Some((dist_sq, pos));
         }
     }
@@ -273,6 +288,7 @@ fn expire_melee_hits(
 }
 
 /// Spawn and orbit orbs around the player, one per OrbitingOrb weapon slot.
+#[allow(clippy::type_complexity)] // slot vs. live-orb queries need mutual exclusion
 fn update_orbs(
     mut commands: Commands,
     time: Res<Time>,
