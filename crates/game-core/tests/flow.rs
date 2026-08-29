@@ -884,6 +884,70 @@ fn wave_end_heals_half_of_max_hp() {
 }
 
 #[test]
+fn projectile_knockback_pushes_enemy_then_decays() {
+    let mut app = headless(42, 5, false);
+    // Isolate from wave spawns so only the enemy below is involved.
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+    keep_only_weapon(&mut app, WeaponKind::PiercingProjectile);
+
+    // A tanky, motionless enemy downrange on +X: the projectile hits it and
+    // the knockback must shove it further along +X, then decay to rest.
+    app.world_mut().spawn((
+        Enemy {
+            kind: EnemyKind::MeleeRusher,
+            speed: 0.0,
+            health: 1.0e6,
+            split_depth: 0,
+        },
+        Transform::from_xyz(300.0, 0.0, 0.0),
+    ));
+
+    let mut steps = 0;
+    while app.world().resource::<Recording>().hits < 1 && steps < 180 {
+        step(&mut app);
+        steps += 1;
+    }
+    assert!(
+        app.world().resource::<Recording>().hits >= 1,
+        "projectile must land"
+    );
+    // Freeze the weapon so no second volley interferes with the decay window.
+    let mut weapons = app.world_mut().query::<&mut Weapon>();
+    for mut weapon in weapons.iter_mut(app.world_mut()) {
+        if weapon.kind == WeaponKind::PiercingProjectile {
+            weapon.cooldown = Timer::from_seconds(1.0e9, TimerMode::Repeating);
+        }
+    }
+    let mut enemies = app.world_mut().query::<(&Transform, &Enemy)>();
+    let (transform, _) = enemies.single(app.world()).expect("enemy alive after hit");
+    let x_at_hit = transform.translation.x;
+    assert!(x_at_hit > 300.0, "knockback pushed the enemy along +X");
+
+    // 0.5 s later the drift is nearly spent; 1 s later it has stopped.
+    for _ in 0..30 {
+        step(&mut app);
+    }
+    let (transform, _) = enemies.single(app.world()).unwrap();
+    let x_05s = transform.translation.x;
+    assert!(x_05s - x_at_hit > 2.0, "still drifting shortly after the hit");
+    for _ in 0..30 {
+        step(&mut app);
+    }
+    let (transform, _) = enemies.single(app.world()).unwrap();
+    let x_1s = transform.translation.x;
+    assert!(
+        x_1s - x_05s < 2.0,
+        "knockback decays: moved {} in the second half-second",
+        x_1s - x_05s
+    );
+}
+
+#[test]
 fn wave_lifecycle_events_and_loadout_persistence() {
     let mut app = headless(42, 3, false);
     app.update();

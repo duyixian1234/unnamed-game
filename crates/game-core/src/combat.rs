@@ -3,7 +3,7 @@
 use bevy::ecs::message::Message;
 use bevy::prelude::*;
 
-use crate::enemy::{Enemy, EnemyKind, EnemySpawned};
+use crate::enemy::{Enemy, EnemyKind, EnemySpawned, Knockback};
 use crate::player::{Health, HitCooldown, Player, ATLAS_CELL_PX, PLAYER_RADIUS};
 use crate::weapon::{MeleeHit, OrbitOrb, Projectile};
 use crate::GameState;
@@ -106,13 +106,13 @@ fn resolve_projectile_hits(
     mut spawn_writer: MessageWriter<EnemySpawned>,
     mut hit_writer: MessageWriter<HitSfx>,
     mut projectiles: Query<(&mut Projectile, &Transform)>,
-    mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<Projectile>>,
+    mut enemies: Query<(Entity, &mut Enemy, &Transform, &mut Knockback), Without<Projectile>>,
 ) {
     for (mut projectile, proj_transform) in &mut projectiles {
         let proj_pos = proj_transform.translation.truncate();
         let proj_radius = 8.0;
 
-        for (enemy_entity, mut enemy, enemy_transform) in &mut enemies {
+        for (enemy_entity, mut enemy, enemy_transform, mut knockback) in &mut enemies {
             if projectile.hit_enemies.contains(&enemy_entity) {
                 continue;
             }
@@ -131,6 +131,7 @@ fn resolve_projectile_hits(
                 enemy_pos,
                 projectile.damage,
             );
+            knockback.0 += projectile.direction * projectile.knockback;
         }
     }
 }
@@ -142,13 +143,13 @@ fn resolve_melee_hits(
     mut spawn_writer: MessageWriter<EnemySpawned>,
     mut hit_writer: MessageWriter<HitSfx>,
     mut melee_hits: Query<(&mut MeleeHit, &Transform)>,
-    mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<MeleeHit>>,
+    mut enemies: Query<(Entity, &mut Enemy, &Transform, &mut Knockback), Without<MeleeHit>>,
 ) {
     for (mut melee, melee_transform) in &mut melee_hits {
         let melee_pos = melee_transform.translation.truncate();
         let melee_radius = melee.radius;
 
-        for (enemy_entity, mut enemy, enemy_transform) in &mut enemies {
+        for (enemy_entity, mut enemy, enemy_transform, mut knockback) in &mut enemies {
             if melee.hit_enemies.contains(&enemy_entity) {
                 continue;
             }
@@ -167,6 +168,8 @@ fn resolve_melee_hits(
                 enemy_pos,
                 melee.damage,
             );
+            let dir = (enemy_pos - melee_pos).normalize_or_zero();
+            knockback.0 += dir * melee.knockback;
         }
     }
 }
@@ -178,13 +181,13 @@ fn resolve_orb_hits(
     mut spawn_writer: MessageWriter<EnemySpawned>,
     mut hit_writer: MessageWriter<HitSfx>,
     mut orbs: Query<(&mut OrbitOrb, &Transform)>,
-    mut enemies: Query<(Entity, &mut Enemy, &Transform), Without<OrbitOrb>>,
+    mut enemies: Query<(Entity, &mut Enemy, &Transform, &mut Knockback), Without<OrbitOrb>>,
 ) {
     for (mut orb, orb_transform) in &mut orbs {
         let orb_pos = orb_transform.translation.truncate();
         let orb_radius = 9.0;
 
-        for (enemy_entity, mut enemy, enemy_transform) in &mut enemies {
+        for (enemy_entity, mut enemy, enemy_transform, mut knockback) in &mut enemies {
             if orb.hit_enemies.contains(&enemy_entity) {
                 continue;
             }
@@ -203,6 +206,8 @@ fn resolve_orb_hits(
                 enemy_pos,
                 orb.damage,
             );
+            let dir = (enemy_pos - orb_pos).normalize_or_zero();
+            knockback.0 += dir * orb.knockback;
         }
     }
 }

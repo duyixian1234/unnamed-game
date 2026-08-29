@@ -24,8 +24,14 @@ pub struct EnemySpawned {
     pub kind: EnemyKind,
 }
 
+/// External impulse velocity applied by weapon hits (units/s). Decays
+/// exponentially in `enemy_pursuit`; auto-inserted with every `Enemy`.
+#[derive(Component, Debug, Default)]
+pub struct Knockback(pub Vec2);
+
 /// The enemy's stats and identity.
 #[derive(Component)]
+#[require(Knockback)]
 pub struct Enemy {
     pub kind: EnemyKind,
     /// Current movement speed (may change, e.g. a burster accelerating).
@@ -65,33 +71,46 @@ impl Plugin for EnemyPlugin {
     }
 }
 
-/// Move every enemy toward the player, applying per-kind movement rules.
+/// Move every enemy toward the player, applying per-kind movement rules and
+/// integrating any knockback impulse (which decays exponentially).
 fn enemy_pursuit(
     time: Res<Time>,
     players: Query<&Transform, (With<Player>, Without<Enemy>)>,
-    mut enemies: Query<(&mut Transform, &mut Enemy), Without<Player>>,
+    mut enemies: Query<(&mut Transform, &Enemy, &mut Knockback), Without<Player>>,
 ) {
+    const KNOCKBACK_HALF_LIFE: f32 = 0.12;
+
     let Ok(player) = players.single() else {
         return;
     };
     let player_pos = player.translation.truncate();
-    for (mut transform, enemy) in &mut enemies {
-        let dir = player_pos - transform.translation.truncate();
+    let dt = time.delta_secs();
+    for (mut transform, enemy, mut knockback) in &mut enemies {
+        let pos = transform.translation.truncate();
+        let dir = player_pos - pos;
         let dist = dir.length();
-        if dist < 0.001 {
-            continue;
-        }
-        let dir = dir / dist;
+        if dist >= 0.001 {
+            let dir = dir / dist;
 
-        // Per-kind speed: bursters accelerate as they close in on the player.
-        let mut speed = enemy.speed;
-        if enemy.kind == EnemyKind::SpeedBurster {
-            speed += (800.0 / (dist + 40.0)).min(320.0);
+            // Per-kind speed: bursters accelerate as they close in on the player.
+            let mut speed = enemy.speed;
+            if enemy.kind == EnemyKind::SpeedBurster {
+                speed += (800.0 / (dist + 40.0)).min(320.0);
+            }
+
+            let delta = dir * speed * dt;
+            transform.translation.x += delta.x;
+            transform.translation.y += delta.y;
         }
 
-        let delta = dir * speed * time.delta_secs();
-        transform.translation.x += delta.x;
-        transform.translation.y += delta.y;
+        // Knockback: integrate the impulse velocity and decay it
+        // exponentially (half-life KNOCKBACK_HALF_LIFE).
+        transform.translation.x += knockback.0.x * dt;
+        transform.translation.y += knockback.0.y * dt;
+        knockback.0 *= f32::exp2(-dt / KNOCKBACK_HALF_LIFE);
+        if knockback.0.length_squared() < 0.01 {
+            knockback.0 = Vec2::ZERO;
+        }
     }
 }
 

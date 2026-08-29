@@ -28,6 +28,17 @@ impl WeaponKind {
             WeaponKind::OrbitingOrb => "环绕球",
         }
     }
+
+    /// Knockback impulse strength (initial velocity, units/s) applied to
+    /// enemies on each damaging hit. Melee is strongest (self-defense), the
+    /// orb weakest (it re-hits every frame while touching).
+    pub fn knockback(self) -> f32 {
+        match self {
+            WeaponKind::PiercingProjectile => 80.0,
+            WeaponKind::MeleeSwing => 150.0,
+            WeaponKind::OrbitingOrb => 40.0,
+        }
+    }
 }
 
 /// A single equipped weapon. Lives on a child entity (a "slot") of the player,
@@ -64,6 +75,8 @@ impl Weapon {
 #[derive(Component)]
 pub struct Projectile {
     pub damage: f32,
+    /// Knockback impulse applied to enemies on hit.
+    pub knockback: f32,
     pub speed: f32,
     pub direction: Vec2,
     pub lifetime: Timer,
@@ -77,6 +90,8 @@ pub struct Projectile {
 #[derive(Component)]
 pub struct MeleeHit {
     pub damage: f32,
+    /// Knockback impulse applied to enemies on hit.
+    pub knockback: f32,
     /// Radius of the swing around the player.
     pub radius: f32,
     pub hit_enemies: Vec<Entity>,
@@ -88,6 +103,8 @@ pub struct MeleeHit {
 #[derive(Component)]
 pub struct OrbitOrb {
     pub damage: f32,
+    /// Knockback impulse applied to enemies on hit (each frame while touching).
+    pub knockback: f32,
     /// Angular position around the player (radians).
     pub angle: f32,
     /// Angular speed (radians/sec).
@@ -198,6 +215,7 @@ fn auto_attack(
                 commands.spawn((
                     Projectile {
                         damage: weapon.damage * stats.damage_mult,
+                        knockback: weapon.kind.knockback(),
                         speed: weapon.projectile_speed,
                         direction,
                         lifetime: Timer::from_seconds(
@@ -228,6 +246,7 @@ fn auto_attack(
                 commands.spawn((
                     MeleeHit {
                         damage: weapon.damage * stats.damage_mult,
+                        knockback: weapon.kind.knockback(),
                         radius,
                         hit_enemies: Vec::new(),
                         lifetime: Timer::from_seconds(0.15, TimerMode::Once),
@@ -324,6 +343,7 @@ fn update_orbs(
         commands.spawn((
             OrbitOrb {
                 damage: orb_damage * stats.damage_mult,
+                knockback: WeaponKind::OrbitingOrb.knockback(),
                 angle: 0.0,
                 angular_speed: 2.5,
                 radius: 70.0,
