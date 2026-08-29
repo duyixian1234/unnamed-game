@@ -1549,6 +1549,8 @@ fn rush_wave_end(app: &mut App) {
 /// Scenario setup + player agency: put `kind` at Lv5, then make the Lv6
 /// evolution pick through the real UpgradeChoice flow (levels resource write
 /// is scenario setup; the pick itself goes through the message path).
+const DERIVED_DAMAGE_SLOT: WeaponSlot = WeaponSlot(3);
+
 fn evolve_via_choice(app: &mut App, kind: WeaponKind) {
     app.world_mut()
         .resource_mut::<WeaponLevels>()
@@ -1562,6 +1564,11 @@ fn evolve_via_choice(app: &mut App, kind: WeaponKind) {
     step(app);
     step(app);
     assert_eq!(current_state(app), GameState::Shop);
+    let mut slots = app.world_mut().query::<&mut WeaponSlot>();
+    let mut slot = slots
+        .single_mut(app.world_mut())
+        .expect("single equipped weapon");
+    *slot = DERIVED_DAMAGE_SLOT;
     set_next_state(app, GameState::InGame);
     step(app);
 }
@@ -1737,12 +1744,22 @@ fn melee_lv6_whirlwind_hits_continuously_without_swing_rhythm() {
         .world()
         .resource::<DamageStats>()
         .run
-        .slot(WeaponSlot(0))
+        .slot(DERIVED_DAMAGE_SLOT)
         .expect("whirlwind damage attributed to source slot")
         .effective_damage;
     assert!(
         (attributed - (100_000.0 - enemy.health)).abs() < 0.1,
         "all whirlwind damage stays on the originating slot"
+    );
+    assert_eq!(
+        app.world()
+            .resource::<DamageStats>()
+            .run
+            .slot(WeaponSlot(0))
+            .expect("starting slot remains registered")
+            .effective_damage,
+        0.0,
+        "whirlwind must not fall back to slot zero"
     );
 }
 
@@ -1810,12 +1827,22 @@ fn piercing_lv6_splitshot_spawns_fan_shards_on_first_hit() {
         .world()
         .resource::<DamageStats>()
         .run
-        .slot(WeaponSlot(0))
+        .slot(DERIVED_DAMAGE_SLOT)
         .expect("splitshot damage attributed to source slot")
         .effective_damage;
     assert!(
         (attributed - (100_000.0 - health)).abs() < 0.1,
         "parent and shard damage stay on the originating slot"
+    );
+    assert_eq!(
+        app.world()
+            .resource::<DamageStats>()
+            .run
+            .slot(WeaponSlot(0))
+            .expect("starting slot remains registered")
+            .effective_damage,
+        0.0,
+        "splitshot must not fall back to slot zero"
     );
 }
 
@@ -1888,13 +1915,23 @@ fn orb_lv6_bomber_orb_explodes_on_contact_and_respawns() {
         .world()
         .resource::<DamageStats>()
         .run
-        .slot(WeaponSlot(0))
+        .slot(DERIVED_DAMAGE_SLOT)
         .expect("bomber damage attributed to source slot")
         .effective_damage;
     let removed_health = 100_000.0 - contact_health + 1000.0 - witness_health;
     assert!(
         (attributed - removed_health).abs() < 0.1,
         "contact and explosion damage stay on the originating slot"
+    );
+    assert_eq!(
+        app.world()
+            .resource::<DamageStats>()
+            .run
+            .slot(WeaponSlot(0))
+            .expect("starting slot remains registered")
+            .effective_damage,
+        0.0,
+        "bomber damage must not fall back to slot zero"
     );
 
     // The orb stays absent for its 0.6 second respawn window.
