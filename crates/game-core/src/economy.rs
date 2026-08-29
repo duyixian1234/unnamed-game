@@ -44,8 +44,10 @@ impl Plugin for EconomyPlugin {
             .add_message::<PickupSfx>()
             .add_message::<MaterialPickedUp>()
             .add_systems(OnEnter(GameState::MainMenu), reset_materials)
-            .add_systems(Update, (drop_on_enemy_death, pick_up_materials)
-                .run_if(in_state(GameState::InGame)));
+            .add_systems(
+                Update,
+                (drop_on_enemy_death, pick_up_materials).run_if(in_state(GameState::InGame)),
+            );
     }
 }
 
@@ -58,7 +60,9 @@ fn reset_materials(mut materials: ResMut<Materials>) {
 fn drop_on_enemy_death(mut commands: Commands, mut deaths: MessageReader<EnemyDied>) {
     for death in deaths.read() {
         commands.spawn((
-            Material { value: MATERIAL_VALUE },
+            Material {
+                value: MATERIAL_VALUE,
+            },
             Transform::from_translation(death.position.extend(0.0)),
         ));
     }

@@ -95,7 +95,10 @@ impl Plugin for WavesPlugin {
                 // `spawn_from_edges` consumes the GlobalRng: it must be
                 // explicitly ordered (ADR-0005). `advance_wave` is chained
                 // after it for a deterministic frame.
-                (spawn_from_edges.in_set(RandomDraw), advance_wave.after(spawn_from_edges))
+                (
+                    spawn_from_edges.in_set(RandomDraw),
+                    advance_wave.after(spawn_from_edges),
+                )
                     .run_if(in_state(GameState::InGame)),
             );
     }
@@ -146,7 +149,9 @@ fn announce_wave(
     mut wave_writer: MessageWriter<WaveStarted>,
     mut run_writer: MessageWriter<RunStarted>,
 ) {
-    wave_writer.write(WaveStarted { number: wave.number });
+    wave_writer.write(WaveStarted {
+        number: wave.number,
+    });
     if wave.number == 1 {
         run_writer.write(RunStarted);
     }
@@ -169,7 +174,9 @@ fn advance_wave(
     if !wave.wave_timer.is_finished() {
         return;
     }
-    completed_writer.write(WaveCompleted { number: wave.number });
+    completed_writer.write(WaveCompleted {
+        number: wave.number,
+    });
     if wave.number >= config.max_waves {
         next_state.set(GameState::Victory);
     } else {
@@ -220,7 +227,11 @@ fn spawn_from_edges(
 fn random_enemy_spec(rng: &mut impl Rng, wave: u32) -> (EnemyKind, f32, f32) {
     let base = wave as f32;
     match rng.random_range(0..3) {
-        0 => (EnemyKind::MeleeRusher, 120.0 + base * 8.0, 30.0 + base * 2.0),
+        0 => (
+            EnemyKind::MeleeRusher,
+            120.0 + base * 8.0,
+            30.0 + base * 2.0,
+        ),
         1 => (EnemyKind::SpeedBurster, 200.0 + base * 6.0, 18.0 + base),
         _ => (EnemyKind::Splitter, 140.0 + base * 6.0, 40.0 + base * 2.0),
     }

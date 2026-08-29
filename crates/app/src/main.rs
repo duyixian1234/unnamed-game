@@ -19,16 +19,14 @@ fn main() {
     let seed = parse_seed();
 
     App::new()
-        .add_plugins(
-            DefaultPlugins.set(bevy::asset::AssetPlugin {
-                // We commit plain assets with no .meta files. In wasm, the dev
-                // server returns the SPA index.html for missing .meta paths,
-                // which Bevy can't parse as meta. Disabling the meta check lets
-                // assets load straight from their bytes so sprites render.
-                meta_check: bevy::asset::AssetMetaCheck::Never,
-                ..default()
-            }),
-        )
+        .add_plugins(DefaultPlugins.set(bevy::asset::AssetPlugin {
+            // We commit plain assets with no .meta files. In wasm, the dev
+            // server returns the SPA index.html for missing .meta paths,
+            // which Bevy can't parse as meta. Disabling the meta check lets
+            // assets load straight from their bytes so sprites render.
+            meta_check: bevy::asset::AssetMetaCheck::Never,
+            ..default()
+        }))
         // Must be inserted before CorePlugin: init_rng picks up an existing
         // Seed instead of generating a random one (ADR-0005).
         .insert_resource(Seed(seed))

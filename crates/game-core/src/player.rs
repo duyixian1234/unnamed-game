@@ -121,13 +121,13 @@ fn player_movement(
 /// void where enemies can't reach them.
 fn clamp_to_field(mut players: Query<&mut Transform, With<Player>>) {
     for mut transform in &mut players {
-        transform.translation.x = transform
-            .translation
-            .x
-            .clamp(-(FIELD_HALF_WIDTH - PLAYER_RADIUS), FIELD_HALF_WIDTH - PLAYER_RADIUS);
-        transform.translation.y = transform
-            .translation
-            .y
-            .clamp(-(FIELD_HALF_HEIGHT - PLAYER_RADIUS), FIELD_HALF_HEIGHT - PLAYER_RADIUS);
+        transform.translation.x = transform.translation.x.clamp(
+            -(FIELD_HALF_WIDTH - PLAYER_RADIUS),
+            FIELD_HALF_WIDTH - PLAYER_RADIUS,
+        );
+        transform.translation.y = transform.translation.y.clamp(
+            -(FIELD_HALF_HEIGHT - PLAYER_RADIUS),
+            FIELD_HALF_HEIGHT - PLAYER_RADIUS,
+        );
     }
 }

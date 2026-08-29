@@ -9,8 +9,8 @@
 use bevy::ecs::message::MessageWriter;
 use bevy::prelude::*;
 
-use crate::enemy::Enemy;
 use crate::economy::Material;
+use crate::enemy::Enemy;
 use crate::intent::{PlayerMoveIntent, PurchaseRequest};
 use crate::player::Player;
 use crate::GameState;
@@ -30,8 +30,7 @@ impl Plugin for AiPlugin {
                 ai_combat_movement.run_if(in_state(GameState::InGame)),
                 ai_continue.run_if(in_state(GameState::Shop)),
                 ai_buy.run_if(in_state(GameState::Shop)),
-                ai_play_again
-                    .run_if(in_state(GameState::Victory).or(in_state(GameState::Defeat))),
+                ai_play_again.run_if(in_state(GameState::Victory).or(in_state(GameState::Defeat))),
             ),
         );
     }

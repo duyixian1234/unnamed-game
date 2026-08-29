@@ -16,10 +16,7 @@ impl Plugin for KeyboardIntentPlugin {
     }
 }
 
-fn keyboard_intent(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut intent: ResMut<PlayerMoveIntent>,
-) {
+fn keyboard_intent(keyboard: Res<ButtonInput<KeyCode>>, mut intent: ResMut<PlayerMoveIntent>) {
     let mut dir = Vec2::ZERO;
     if keyboard.pressed(KeyCode::KeyW) {
         dir.y += 1.0;

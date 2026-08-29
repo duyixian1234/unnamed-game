@@ -50,7 +50,12 @@ impl Plugin for CombatPlugin {
             .add_message::<PlayerHurt>()
             .add_systems(
                 Update,
-                (resolve_projectile_hits, resolve_melee_hits, resolve_orb_hits, contact_damage)
+                (
+                    resolve_projectile_hits,
+                    resolve_melee_hits,
+                    resolve_orb_hits,
+                    contact_damage,
+                )
                     .in_set(CombatSet::ResolveDamage)
                     .run_if(in_state(GameState::InGame)),
             );
