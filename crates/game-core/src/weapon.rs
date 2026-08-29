@@ -43,9 +43,9 @@ impl WeaponKind {
     /// Short description of the weapon's intended playstyle.
     pub fn playstyle(self) -> &'static str {
         match self {
-            WeaponKind::PiercingProjectile => "远程穿透",
-            WeaponKind::MeleeSwing => "近身爆发",
-            WeaponKind::OrbitingOrb => "贴身持续",
+            WeaponKind::PiercingProjectile => "远程安全、直线群伤",
+            WeaponKind::MeleeSwing => "高风险高爆发、强击退",
+            WeaponKind::OrbitingOrb => "贴身持续清群、依赖走位",
         }
     }
 

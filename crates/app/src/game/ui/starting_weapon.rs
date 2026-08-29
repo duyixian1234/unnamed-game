@@ -229,13 +229,13 @@ fn spawn_weapon_card(
                 TextColor(Color::srgb(0.62, 0.78, 0.96)),
             ));
             card.spawn((
-                Text::new(format!("Lv1 关键属性：{}", stats)),
+                Text::new(format!("一级关键属性：{}", stats)),
                 ui_font(asset_server, 17.0),
                 TextColor(Color::srgb(0.88, 0.88, 0.92)),
             ));
             card.spawn((
                 Text::new(format!(
-                    "Lv6 质变：{}：{}",
+                    "六级质变：{}：{}",
                     path.evolution.name(),
                     path.evolution.description()
                 )),
@@ -273,16 +273,17 @@ fn base_stats_copy(weapon: &Weapon) -> String {
 fn route_details(kind: WeaponKind) -> String {
     let path = path_for(kind);
     let mut details = format!("{} · 完整升级路线\n", kind.display_name());
+    details.push_str(&format!("一级：{}\n", base_stats_copy(&Weapon::new(kind))));
     for (index, pair) in path.levels.iter().enumerate() {
         details.push_str(&format!(
-            "Lv{}：A) {}　B) {}\n",
+            "{}级：甲：{}　乙：{}\n",
             index + 2,
             pair[0].label,
             pair[1].label
         ));
     }
     details.push_str(&format!(
-        "Lv6 质变：{} · {}",
+        "六级质变：{} · {}",
         path.evolution.name(),
         path.evolution.description()
     ));

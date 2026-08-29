@@ -26,7 +26,7 @@ fi
 pyftsubset() { python -m fontTools.subset "$@"; }
 pyftsubset "$SRC" \
   --text-file=tools/ui_text.txt \
-  --unicodes="U+0020-007E,U+00B7,U+2014,U+2026" \
+  --unicodes="U+0020-007E,U+00B7,U+2014,U+2026,U+3000" \
   --output-file="$OUT" \
   --layout-features='' \
   --no-hinting \

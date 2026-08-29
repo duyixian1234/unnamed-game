@@ -133,7 +133,7 @@ fn spawn_path_ui(
         })
         .with_children(|weapon_node| {
             weapon_node.spawn((
-                Text::new(format!("{}  Lv {}/6", path.kind.display_name(), level)),
+                Text::new(format!("{}　等级 {}/6", path.kind.display_name(), level)),
                 ui_font(asset_server, 26.0),
                 TextColor(Color::srgb(0.9, 0.8, 0.4)),
             ));
@@ -144,7 +144,7 @@ fn spawn_path_ui(
                 let mark = |taken: bool| if taken { "x" } else { " " };
                 weapon_node.spawn((
                     Text::new(format!(
-                        "Lv{}:  [{}] A) {}    [{}] B) {}",
+                        "{}级： [{}] 甲：{}　[{}] 乙：{}",
                         target,
                         mark(level >= target as u8),
                         pair[0].label,
@@ -157,7 +157,7 @@ fn spawn_path_ui(
             }
             weapon_node.spawn((
                 Text::new(format!(
-                    "Lv6 质变：{} · {}",
+                    "六级质变：{} · {}",
                     path.evolution.name(),
                     path.evolution.description()
                 )),
@@ -193,7 +193,7 @@ fn spawn_path_ui(
                                         BackgroundColor(Color::srgb(0.2, 0.5, 0.3)),
                                     ))
                                     .with_child((
-                                        Text::new(format!("Lv{} {}", level + 1, opt.label)),
+                                        Text::new(format!("升级至{}级　{}", level + 1, opt.label)),
                                         ui_font(asset_server, 20.0),
                                         TextColor(Color::WHITE),
                                     ));
@@ -223,7 +223,7 @@ fn spawn_path_ui(
                                     BackgroundColor(Color::srgb(0.6, 0.2, 0.6)),
                                 ))
                                 .with_child((
-                                    Text::new(format!("Lv6 进化：{}", path.evolution.name())),
+                                    Text::new(format!("六级进化：{}", path.evolution.name())),
                                     ui_font(asset_server, 20.0),
                                     TextColor(Color::WHITE),
                                 ));
