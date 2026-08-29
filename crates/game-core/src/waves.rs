@@ -7,7 +7,7 @@ use rand::Rng;
 
 use crate::economy::Material;
 use crate::enemy::{Enemy, EnemyKind, EnemySpawned};
-use crate::player::Player;
+use crate::player::{Health, Player};
 use crate::rng::{GlobalRng, RandomDraw};
 use crate::weapon::{MeleeHit, OrbitOrb, Projectile};
 use crate::{GameState, RunStarted};
@@ -24,6 +24,9 @@ const BASE_SPAWN_INTERVAL: f32 = 1.1;
 /// How long each wave lasts (seconds); difficulty escalates via spawn rate and
 /// enemy stats.
 const WAVE_DURATION: f32 = 30.0;
+
+/// Fraction of max HP recovered when a wave ends (CONTEXT.md: wave recovery).
+const WAVE_END_HEAL_FRACTION: f32 = 0.5;
 
 /// How many waves a Run lasts. Configurable so tests can run short
 /// full-flow games (CONTEXT.md: wave count configurable). `spawning` can be
@@ -162,17 +165,22 @@ fn reset_run(mut wave: ResMut<Wave>) {
     wave.number = 1;
 }
 
-/// When a wave's time elapses, advance to the Shop or to Victory.
+/// When a wave's time elapses, recover 50% of max HP (wave recovery), then
+/// advance to the Shop or to Victory.
 fn advance_wave(
     time: Res<Time>,
     mut wave: ResMut<Wave>,
     config: Res<WaveConfig>,
     mut next_state: ResMut<NextState<GameState>>,
     mut completed_writer: MessageWriter<WaveCompleted>,
+    mut players: Query<&mut Health, With<Player>>,
 ) {
     wave.wave_timer.tick(time.delta());
     if !wave.wave_timer.is_finished() {
         return;
+    }
+    if let Ok(mut health) = players.single_mut() {
+        health.current = (health.current + health.max * WAVE_END_HEAL_FRACTION).min(health.max);
     }
     completed_writer.write(WaveCompleted {
         number: wave.number,

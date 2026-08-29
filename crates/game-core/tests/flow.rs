@@ -446,7 +446,10 @@ fn shop_purchase_deducts_applies_and_rejects() {
     let (stats, health) = players.single(app.world()).expect("player in shop");
     assert_eq!(stats.max_hp_bonus, 25.0, "stat boost applied");
     assert_eq!(health.max, 125.0, "max HP raised by the boost");
-    assert_eq!(health.current, 100.0, "current HP clamped, not healed");
+    assert_eq!(
+        health.current, 125.0,
+        "current HP rises by the same amount as max"
+    );
 
     // Unaffordable request: rejected, wallet and stats untouched.
     app.world_mut().resource_mut::<Materials>().count = 5;
@@ -847,6 +850,37 @@ fn melee_swing_only_fires_when_an_enemy_is_in_range() {
         app.world().resource::<Recording>().hits >= 1,
         "an in-range enemy must trigger the swing"
     );
+}
+
+#[test]
+fn wave_end_heals_half_of_max_hp() {
+    let mut app = headless(42, 3, false);
+    // No wave spawns: the only HP change must come from wave recovery.
+    app.insert_resource(WaveConfig {
+        max_waves: 3,
+        spawning: false,
+    });
+    app.update();
+    start_run(&mut app);
+
+    // Scenario setup: damage the player directly to 40/100.
+    let mut players = app.world_mut().query_filtered::<Entity, With<Player>>();
+    let player = players.single(app.world()).expect("player spawned on wave 1");
+    app.world_mut()
+        .entity_mut(player)
+        .insert(Health { max: 100.0, current: 40.0 });
+
+    // Wait for wave 1's timer (30 s) to elapse and the shop to open.
+    let mut steps = 0;
+    while current_state(&app) != GameState::Shop && steps < 2_400 {
+        step(&mut app);
+        steps += 1;
+    }
+    assert_eq!(current_state(&app), GameState::Shop, "wave 1 completed");
+    let mut players = app.world_mut().query_filtered::<&Health, With<Player>>();
+    let health = players.single(app.world()).expect("player persists across waves");
+    assert_eq!(health.max, 100.0);
+    assert_eq!(health.current, 90.0, "wave end recovers 50% of max HP");
 }
 
 #[test]

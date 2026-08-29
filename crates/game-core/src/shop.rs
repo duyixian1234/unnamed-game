@@ -77,11 +77,12 @@ fn process_purchases(
         materials.count -= item.cost;
 
         (item.apply)(&mut stats);
-        // A max-HP boost raises the cap; current HP is clamped to it
-        // (no heal — the boost only enlarges the pool).
+        // A max-HP boost thickens the pool and fills it by the same amount
+        // (CONTEXT.md: buying HP raises both max and current).
         if stats.max_hp_bonus > 0.0 {
-            health.max = 100.0 + stats.max_hp_bonus;
-            health.current = health.current.min(health.max);
+            let new_max = 100.0 + stats.max_hp_bonus;
+            health.current += new_max - health.max;
+            health.max = new_max;
         }
         purchased_writer.write(ItemPurchased {
             item_index: request.item_index,
