@@ -24,9 +24,11 @@ default := "dev"
     Write-Host "Serving at http://127.0.0.1:8080" -ForegroundColor Cyan
     $env:CARGO_INCREMENTAL='0'; cd crates/app; trunk serve --port 8080
 
-# Native dev loop (fastest iteration path, ADR-0003)
+# Native dev loop (fastest iteration path, ADR-0003).
+# BEVY_ASSET_ROOT: bevy 0.17 resolves the native asset root to the crate dir
+# (crates/app), but assets live at the repo root — point it back explicitly.
 @dev-native:
-    cargo run -p unnamed-game
+    $env:BEVY_ASSET_ROOT=(Get-Location).Path; cargo run -p unnamed-game
 
 # Alias for `dev` (wasm browser dev server on 8080)
 @serve: dev
