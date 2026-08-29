@@ -6,6 +6,7 @@ pub mod end_screen;
 pub mod hud;
 pub mod main_menu;
 pub mod shop;
+pub mod weapon_bar;
 
 use bevy::prelude::*;
 
@@ -19,6 +20,7 @@ impl Plugin for UIPlugin {
             hud::HudPlugin,
             main_menu::MainMenuPlugin,
             shop::ShopPlugin,
+            weapon_bar::WeaponBarPlugin,
         ));
     }
 }
@@ -26,3 +28,13 @@ impl Plugin for UIPlugin {
 /// Marker for a UI screen root node, used to clean up screens on state exit.
 #[derive(Component)]
 pub struct ScreenRoot;
+
+/// The subsetted Chinese UI font (ADR-0007). `AssetServer.load` dedups by
+/// path, so calling this per screen is cheap and avoids load-order hazards.
+pub fn ui_font(asset_server: &AssetServer, font_size: f32) -> TextFont {
+    TextFont {
+        font: asset_server.load("fonts/ui.ttf"),
+        font_size,
+        ..default()
+    }
+}

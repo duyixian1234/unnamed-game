@@ -2,8 +2,8 @@
 //!
 //! The simulation spawns entities with components + `Transform` (scale
 //! included) only; these systems watch for newly added sim components and
-//! insert the matching `Sprite` (ADR-0004). Projectile / orb visuals are
-//! pure-color sprites defined here; the melee swing uses the atlas ring.
+//! insert the matching `Sprite` (ADR-0004). All visuals use atlas cells; the
+//! melee swing is tinted translucent here.
 
 use bevy::prelude::*;
 
@@ -12,8 +12,7 @@ use game_core::enemy::Enemy;
 use game_core::player::Player;
 use game_core::weapon::{MeleeHit, OrbitOrb, Projectile};
 
-use super::assets::{atlas_sprite, atlas_index, SpriteAssets, ATLAS_CELL};
-
+use super::assets::{atlas_index, atlas_sprite, SpriteAssets, ATLAS_CELL};
 /// Plugin attaching sprites to simulation entities.
 pub struct RenderPlugin;
 
@@ -45,6 +44,7 @@ fn attach_player_sprite(
     }
 }
 
+#[allow(clippy::type_complexity)] // Added<T> + Without<Sprite> disambiguation filters
 fn attach_enemy_sprite(
     mut commands: Commands,
     sprite_assets: Res<SpriteAssets>,
@@ -52,12 +52,15 @@ fn attach_enemy_sprite(
 ) {
     for (entity, enemy) in &enemies {
         let index = sprite_assets.enemy_index(enemy.kind);
-        commands.entity(entity).insert(atlas_sprite(&sprite_assets, index));
+        commands
+            .entity(entity)
+            .insert(atlas_sprite(&sprite_assets, index));
     }
 }
 
 /// Dropped materials render at a fixed small size (18px on the 128px atlas
 /// cell); the sim spawns them unscaled, so the render layer sets the scale.
+#[allow(clippy::type_complexity)] // Added<T> + Without<Sprite> disambiguation filters
 fn attach_material_sprite(
     mut commands: Commands,
     sprite_assets: Res<SpriteAssets>,
@@ -72,16 +75,25 @@ fn attach_material_sprite(
     }
 }
 
+/// Projectiles render as the atlas energy-bolt sprite (cell 6), scaled to
+/// ~26px and rotated along their flight direction (fixed at spawn — the sim
+/// never changes `Projectile::direction`).
+#[allow(clippy::type_complexity)] // Added<T> + Without<Sprite> disambiguation filters
 fn attach_projectile_sprite(
     mut commands: Commands,
-    projectiles: Query<Entity, (Added<Projectile>, Without<Sprite>)>,
+    sprite_assets: Res<SpriteAssets>,
+    mut projectiles: Query<
+        (Entity, &Projectile, &mut Transform),
+        (Added<Projectile>, Without<Sprite>),
+    >,
 ) {
-    for entity in &projectiles {
-        commands.entity(entity).insert(Sprite {
-            color: Color::srgb(0.95, 0.85, 0.3),
-            custom_size: Some(Vec2::new(24.0, 8.0)),
-            ..default()
-        });
+    for (entity, projectile, mut transform) in &mut projectiles {
+        transform.rotation =
+            Quat::from_rotation_z(projectile.direction.y.atan2(projectile.direction.x));
+        transform.scale = Vec3::splat(26.0 / ATLAS_CELL as f32);
+        commands
+            .entity(entity)
+            .insert(atlas_sprite(&sprite_assets, atlas_index::PROJECTILE));
     }
 }
 
@@ -90,6 +102,7 @@ fn attach_projectile_sprite(
 /// geometry generated in tools/gen_sprites.sh), so the drawn ring lands just
 /// inside the actual hit radius. Tinted translucent so the 0.15 s flash reads
 /// as a quick pulse, not a wall.
+#[allow(clippy::type_complexity)] // Added<T> + Without<Sprite> disambiguation filters
 fn attach_melee_sprite(
     mut commands: Commands,
     sprite_assets: Res<SpriteAssets>,
@@ -104,15 +117,18 @@ fn attach_melee_sprite(
     }
 }
 
+#[allow(clippy::type_complexity)] // Added<T> + Without<Sprite> disambiguation filters
 fn attach_orb_sprite(
     mut commands: Commands,
-    orbs: Query<Entity, (Added<OrbitOrb>, Without<Sprite>)>,
+    sprite_assets: Res<SpriteAssets>,
+    mut orbs: Query<(Entity, &mut Transform), (Added<OrbitOrb>, Without<Sprite>)>,
 ) {
-    for entity in &orbs {
-        commands.entity(entity).insert(Sprite {
-            color: Color::srgb(0.3, 0.9, 0.9),
-            custom_size: Some(Vec2::splat(18.0)),
-            ..default()
-        });
+    // The sim spawns orbs unscaled; render at 18px to exactly match the
+    // orb hitbox (combat.rs: orb_radius = 9.0).
+    for (entity, mut transform) in &mut orbs {
+        transform.scale = Vec3::splat(18.0 / ATLAS_CELL as f32);
+        commands
+            .entity(entity)
+            .insert(atlas_sprite(&sprite_assets, atlas_index::ORB));
     }
 }

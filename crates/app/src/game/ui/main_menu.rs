@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use game_core::GameState;
 
-use super::ScreenRoot;
+use super::{ui_font, ScreenRoot};
 
 /// Plugin that owns the main menu screen and its interactions.
 pub struct MainMenuPlugin;
@@ -20,7 +20,7 @@ impl Plugin for MainMenuPlugin {
 #[derive(Component)]
 struct StartButton;
 
-fn spawn_main_menu(mut commands: Commands) {
+fn spawn_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             ScreenRoot,
@@ -37,10 +37,7 @@ fn spawn_main_menu(mut commands: Commands) {
         .with_children(|parent| {
             parent.spawn((
                 Text::new("unnamed-game"),
-                TextFont {
-                    font_size: 64.0,
-                    ..default()
-                },
+                ui_font(&asset_server, 64.0),
                 TextColor(Color::WHITE),
             ));
             parent
@@ -54,11 +51,8 @@ fn spawn_main_menu(mut commands: Commands) {
                     BackgroundColor(Color::srgb(0.2, 0.4, 0.8)),
                 ))
                 .with_child((
-                    Text::new("Start"),
-                    TextFont {
-                        font_size: 32.0,
-                        ..default()
-                    },
+                    Text::new("开始"),
+                    ui_font(&asset_server, 32.0),
                     TextColor(Color::WHITE),
                 ));
         });
@@ -71,6 +65,7 @@ fn despawn_main_menu(mut commands: Commands, roots: Query<Entity, With<ScreenRoo
     }
 }
 
+#[allow(clippy::type_complexity)] // Changed<Interaction> + With<StartButton> filter
 fn start_button(
     mut interaction: Query<
         (&Interaction, &mut BackgroundColor),

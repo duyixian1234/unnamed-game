@@ -27,7 +27,10 @@ impl Plugin for AppPlugin {
 
         // Log the effective seed so a session can be replayed (ADR-0005).
         let seed = app.world().resource::<Seed>().0;
-        info!("Run seed: {} (replay with --seed {} or GAME_SEED={})", seed, seed, seed);
+        info!(
+            "Run seed: {} (replay with --seed {} or GAME_SEED={})",
+            seed, seed, seed
+        );
 
         // Simulation last, so app systems can order against core systems if
         // ever needed; core is otherwise self-contained.

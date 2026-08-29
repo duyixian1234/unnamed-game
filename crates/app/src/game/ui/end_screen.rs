@@ -2,9 +2,10 @@
 
 use bevy::prelude::*;
 
+use game_core::waves::WaveConfig;
 use game_core::GameState;
 
-use super::ScreenRoot;
+use super::{ui_font, ScreenRoot};
 
 /// A button that restarts the game from the main menu.
 #[derive(Component)]
@@ -25,7 +26,13 @@ impl Plugin for EndScreenPlugin {
 }
 
 /// Shared end-screen layout: a title, subtitle, and a Play Again button.
-fn spawn_screen(commands: &mut Commands, title: &str, title_color: Color, subtitle: &str) {
+fn spawn_screen(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    title: &str,
+    title_color: Color,
+    subtitle: &str,
+) {
     commands
         .spawn((
             ScreenRoot,
@@ -43,12 +50,12 @@ fn spawn_screen(commands: &mut Commands, title: &str, title_color: Color, subtit
         .with_children(|parent| {
             parent.spawn((
                 Text::new(title),
-                TextFont { font_size: 72.0, ..default() },
+                ui_font(asset_server, 72.0),
                 TextColor(title_color),
             ));
             parent.spawn((
                 Text::new(subtitle),
-                TextFont { font_size: 28.0, ..default() },
+                ui_font(asset_server, 28.0),
                 TextColor(Color::WHITE),
             ));
             parent
@@ -63,28 +70,30 @@ fn spawn_screen(commands: &mut Commands, title: &str, title_color: Color, subtit
                     BackgroundColor(Color::srgb(0.2, 0.4, 0.8)),
                 ))
                 .with_child((
-                    Text::new("Play Again"),
-                    TextFont { font_size: 28.0, ..default() },
+                    Text::new("再来一局"),
+                    ui_font(asset_server, 28.0),
                     TextColor(Color::WHITE),
                 ));
         });
 }
 
-fn spawn_victory(mut commands: Commands) {
+fn spawn_victory(mut commands: Commands, asset_server: Res<AssetServer>, config: Res<WaveConfig>) {
     spawn_screen(
         &mut commands,
-        "Victory!",
+        &asset_server,
+        "胜利！",
         Color::srgb(0.9, 0.85, 0.2),
-        "You survived all 20 waves.",
+        &format!("你活过了全部 {} 波。", config.max_waves),
     );
 }
 
-fn spawn_defeat(mut commands: Commands) {
+fn spawn_defeat(mut commands: Commands, asset_server: Res<AssetServer>) {
     spawn_screen(
         &mut commands,
-        "Defeat",
+        &asset_server,
+        "失败",
         Color::srgb(0.9, 0.3, 0.3),
-        "The horde overwhelmed you.",
+        "你被怪潮淹没了。",
     );
 }
 

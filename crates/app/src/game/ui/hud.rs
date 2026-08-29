@@ -1,4 +1,4 @@
-//! In-game HUD: HP, wave, materials, and controls hint.
+//! In-game HUD: HP, wave, materials, and controls hint (Chinese, ADR-0007).
 
 use bevy::prelude::*;
 
@@ -6,6 +6,8 @@ use game_core::economy::Materials;
 use game_core::player::{Health, Player};
 use game_core::waves::{Wave, WaveConfig};
 use game_core::GameState;
+
+use super::ui_font;
 
 /// Root marker for the HUD (separate from generic ScreenRoot cleanup on exit).
 #[derive(Component)]
@@ -34,7 +36,7 @@ impl Plugin for HudPlugin {
     }
 }
 
-fn spawn_hud(mut commands: Commands) {
+fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             HudRoot,
@@ -59,8 +61,8 @@ fn spawn_hud(mut commands: Commands) {
                 })
                 .with_children(|top| {
                     top.spawn((
-                        Text::new("HP"),
-                        TextFont { font_size: 20.0, ..default() },
+                        Text::new("生命值"),
+                        ui_font(&asset_server, 20.0),
                         TextColor(Color::WHITE),
                     ));
                     top.spawn((
@@ -84,7 +86,8 @@ fn spawn_hud(mut commands: Commands) {
                     ));
                     top.spawn((
                         HpText,
-                        TextFont { font_size: 20.0, ..default() },
+                        Text::new(""),
+                        ui_font(&asset_server, 20.0),
                         TextColor(Color::WHITE),
                     ));
                 });
@@ -92,24 +95,24 @@ fn spawn_hud(mut commands: Commands) {
             // Bottom-left: wave + materials status.
             parent.spawn((
                 StatusText,
-                TextFont { font_size: 22.0, ..default() },
+                Text::new(""),
+                ui_font(&asset_server, 22.0),
                 TextColor(Color::srgb(0.9, 0.9, 0.9)),
             ));
 
-            // Bottom-right: controls hint.
-            parent.spawn((
-                Node {
+            // Bottom-right: controls hint (above the weapon bar icons).
+            parent
+                .spawn((Node {
                     position_type: PositionType::Absolute,
-                    bottom: Val::Px(16.0),
+                    bottom: Val::Px(70.0),
                     right: Val::Px(16.0),
                     ..default()
-                },
-            ))
-            .with_child((
-                Text::new("WASD to move — weapons auto-fire"),
-                TextFont { font_size: 18.0, ..default() },
-                TextColor(Color::srgb(0.8, 0.8, 0.8)),
-            ));
+                },))
+                .with_child((
+                    Text::new("WASD 移动 · 武器自动开火"),
+                    ui_font(&asset_server, 18.0),
+                    TextColor(Color::srgb(0.8, 0.8, 0.8)),
+                ));
         });
 }
 
@@ -146,8 +149,11 @@ fn update_hud(
     }
     for mut text in &mut status_text {
         text.0 = format!(
-            "Wave {}/{}    Materials: {}",
-            wave.number, config.max_waves, materials.count
+            "波次 {}/{} · 剩余 {:.0} 秒 · 材料 {}",
+            wave.number,
+            config.max_waves,
+            wave.wave_timer.remaining_secs().max(0.0),
+            materials.count
         );
     }
 }

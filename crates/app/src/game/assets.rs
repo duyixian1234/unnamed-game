@@ -11,11 +11,12 @@ use bevy::image::TextureAtlasLayout;
 use bevy::prelude::*;
 
 use game_core::enemy::EnemyKind;
+use game_core::weapon::WeaponKind;
 
 /// Atlas cell size in pixels (each generated sprite is scaled to this).
 pub const ATLAS_CELL: u32 = 128;
 
-/// Indices of each sprite within the 3x2 atlas grid (384x256).
+/// Indices of each sprite within the 4x4 atlas grid (512x512).
 pub mod atlas_index {
     pub const PLAYER: usize = 0;
     pub const MELEE_RUSHER: usize = 1;
@@ -23,6 +24,11 @@ pub mod atlas_index {
     pub const SPLITTER: usize = 3;
     pub const MATERIAL: usize = 4;
     pub const MELEE_SWING: usize = 5;
+    pub const PROJECTILE: usize = 6;
+    pub const ORB: usize = 7;
+    pub const ICON_PIERCE: usize = 8;
+    pub const ICON_MELEE: usize = 9;
+    pub const ICON_ORB: usize = 10;
 }
 
 /// Loaded sprite atlas handles.
@@ -41,6 +47,15 @@ impl SpriteAssets {
             EnemyKind::Splitter => atlas_index::SPLITTER,
         }
     }
+
+    /// The atlas cell index for a weapon's HUD icon.
+    pub fn weapon_icon_index(kind: WeaponKind) -> usize {
+        match kind {
+            WeaponKind::PiercingProjectile => atlas_index::ICON_PIERCE,
+            WeaponKind::MeleeSwing => atlas_index::ICON_MELEE,
+            WeaponKind::OrbitingOrb => atlas_index::ICON_ORB,
+        }
+    }
 }
 
 /// Plugin that loads the sprite atlas at startup.
@@ -57,9 +72,11 @@ fn load_sprites(
     asset_server: Res<AssetServer>,
     mut layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    let image = asset_server.load("sprites/atlas.png");
-    let layout =
-        TextureAtlasLayout::from_grid(UVec2::splat(ATLAS_CELL), 3, 2, None, None);
+    // "-v2" suffix: versioned filename so browsers that heuristically cached
+    // the old 3x2 atlas can't serve stale art against the 4x4 grid layout.
+    // Bump the version whenever the atlas is regenerated (see gen_sprites.sh).
+    let image = asset_server.load("sprites/atlas-v2.png");
+    let layout = TextureAtlasLayout::from_grid(UVec2::splat(ATLAS_CELL), 4, 4, None, None);
     let layout_handle = layouts.add(layout);
     commands.insert_resource(SpriteAssets {
         atlas: image,
