@@ -7,9 +7,14 @@ use crate::waves::{FIELD_HALF_HEIGHT, FIELD_HALF_WIDTH};
 use crate::GameState;
 
 pub const PLAYER_SPEED: f32 = 320.0;
-/// Collision radius. The sprite is scaled up from the 128px atlas cell so the
-/// character reads clearly on screen.
-pub const PLAYER_RADIUS: f32 = 34.0;
+/// Collision radius for contact damage. The sprite art covers only ~43% of
+/// its atlas cell (measured), so the hitbox is much smaller than the sprite
+/// plus a small grace margin — damage must not start while there is still a
+/// visible gap between the characters.
+pub const PLAYER_RADIUS: f32 = 20.0;
+/// Visual half-size of the player sprite (kept separate from the collision
+/// radius so shrinking the hitbox does not shrink the character).
+pub const PLAYER_SPRITE_RADIUS: f32 = 34.0;
 
 /// Atlas cell size in px; the app crate's spritesheet uses the same cell.
 /// The simulation keeps Transform.scale as the entity's visual size so the
@@ -90,10 +95,10 @@ pub fn spawn_player_if_absent(mut commands: Commands, players: Query<(), With<Pl
         },
         HitCooldown(Timer::from_seconds(HIT_INVULNERABILITY, TimerMode::Once)),
         PlayerStats::default(),
-        // Atlas cells are 128px; scale so the visual matches the collision
-        // radius (2 * PLAYER_RADIUS). The app crate attaches the sprite.
+        // Atlas cells are 128px; scale so the visual matches the sprite size
+        // (2 * PLAYER_SPRITE_RADIUS). The app crate attaches the sprite.
         Transform::from_xyz(0.0, 0.0, 0.0)
-            .with_scale(Vec3::splat((PLAYER_RADIUS * 2.0) / ATLAS_CELL_PX)),
+            .with_scale(Vec3::splat((PLAYER_SPRITE_RADIUS * 2.0) / ATLAS_CELL_PX)),
     ));
 }
 
@@ -118,16 +123,17 @@ fn player_movement(
 }
 
 /// Keep the player inside the play field so they don't wander off into the
-/// void where enemies can't reach them.
+/// void where enemies can't reach them. Clamps by the sprite radius so the
+/// character never visually leaves the arena.
 fn clamp_to_field(mut players: Query<&mut Transform, With<Player>>) {
     for mut transform in &mut players {
         transform.translation.x = transform.translation.x.clamp(
-            -(FIELD_HALF_WIDTH - PLAYER_RADIUS),
-            FIELD_HALF_WIDTH - PLAYER_RADIUS,
+            -(FIELD_HALF_WIDTH - PLAYER_SPRITE_RADIUS),
+            FIELD_HALF_WIDTH - PLAYER_SPRITE_RADIUS,
         );
         transform.translation.y = transform.translation.y.clamp(
-            -(FIELD_HALF_HEIGHT - PLAYER_RADIUS),
-            FIELD_HALF_HEIGHT - PLAYER_RADIUS,
+            -(FIELD_HALF_HEIGHT - PLAYER_SPRITE_RADIUS),
+            FIELD_HALF_HEIGHT - PLAYER_SPRITE_RADIUS,
         );
     }
 }

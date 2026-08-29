@@ -43,11 +43,15 @@ pub struct Enemy {
 }
 
 impl Enemy {
+    /// Collision hitbox radius. Smaller than the rendered sprite: the art
+    /// covers 43-69% of the atlas cell (measured), so these are the visual
+    /// radii plus a small grace margin — contact must not start while there
+    /// is still a visible gap.
     pub fn radius(&self) -> f32 {
         match self.kind {
-            EnemyKind::MeleeRusher => 31.0,
-            EnemyKind::SpeedBurster => 24.0,
-            EnemyKind::Splitter => 35.0,
+            EnemyKind::MeleeRusher => 22.0,
+            EnemyKind::SpeedBurster => 14.0,
+            EnemyKind::Splitter => 22.0,
         }
     }
 

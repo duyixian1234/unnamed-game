@@ -544,7 +544,11 @@ fn splitter_death_splits_twice_then_stops() {
     spawn_static_enemy_at_orb_ring(&mut app, EnemyKind::Splitter, 2);
 
     let mut first_gen_checked = false;
-    for _ in 0..50 {
+    // 120 frames: with hitboxes smaller than the sprite the orb catches the
+    // fast (150 u/s) children a little later than the old 44-unit hitbox did.
+    // Wave spawns start at ~63 frames but stay far away, so they don't
+    // interfere with the chain.
+    for _ in 0..120 {
         step(&mut app);
 
         let splits = {
@@ -579,11 +583,14 @@ fn splitter_death_splits_twice_then_stops() {
     assert_eq!(rec.deaths.len(), 7, "parent + 6 descendants die");
     assert!(rec.deaths.iter().all(|k| *k == EnemyKind::Splitter));
     assert!(first_gen_checked, "first-generation split was observed");
-    let mut remaining = app.world_mut().query_filtered::<Entity, With<Enemy>>();
+    let mut remaining = app.world_mut().query_filtered::<&Enemy, With<Enemy>>();
+    let splitters_left = remaining
+        .iter(app.world())
+        .filter(|e| e.kind == EnemyKind::Splitter)
+        .count();
     assert_eq!(
-        remaining.iter(app.world()).count(),
-        0,
-        "field is empty after the chain"
+        splitters_left, 0,
+        "no Splitter remains after the chain (a wave-spawned enemy may roam)"
     );
     assert_eq!(
         current_state(&app),
@@ -739,8 +746,8 @@ fn melee_swing_hits_every_enemy_in_radius_once() {
     start_run(&mut app);
     keep_only_weapon(&mut app, WeaponKind::MeleeSwing);
 
-    // Three tanky enemies inside the swing ring (radius 90 + body 31) but
-    // outside contact range (65), so only the swing can touch them.
+    // Three tanky enemies inside the swing ring (radius 90 + body 22) but
+    // outside contact range (42), so only the swing can touch them.
     for (x, y) in [(70.0, 0.0), (0.0, 70.0), (-70.0, 0.0)] {
         app.world_mut().spawn((
             Enemy {
@@ -804,7 +811,7 @@ fn melee_swing_only_fires_when_an_enemy_is_in_range() {
     }
     assert_eq!(melee_seen, 0, "no swing with no enemies on the field");
 
-    // A tanky enemy just past the swing reach (range 90 + body 31 < 200):
+    // A tanky enemy just past the swing reach (range 90 + body 22 < 200):
     // still no swing, the gate is a reach check, not a "has any enemy" check.
     let far = app
         .world_mut()
