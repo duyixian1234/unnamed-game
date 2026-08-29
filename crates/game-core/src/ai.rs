@@ -111,14 +111,10 @@ fn ai_combat_movement(
     };
     let pos = player.translation.truncate();
 
-    let close_threat_radius = match weapons.iter().next() {
-        Some(weapon) => match weapon.kind {
-            WeaponKind::PiercingProjectile => THREAT_RADIUS,
-            WeaponKind::MeleeSwing => 55.0,
-            WeaponKind::OrbitingOrb => weapon.orbit_radius * 0.75,
-        },
-        None => THREAT_RADIUS,
-    };
+    let close_threat_radius = weapons
+        .iter()
+        .next()
+        .map_or(THREAT_RADIUS, |weapon| weapon.threat_radius(THREAT_RADIUS));
     let mut flee = Vec2::ZERO;
     for enemy in &enemies {
         let away = pos - enemy.translation.truncate();
@@ -133,12 +129,7 @@ fn ai_combat_movement(
     }
 
     if let Some(weapon) = weapons.iter().next() {
-        let engagement_range = match weapon.kind {
-            WeaponKind::MeleeSwing => Some(weapon.range * 0.8),
-            WeaponKind::OrbitingOrb => Some(weapon.orbit_radius),
-            WeaponKind::PiercingProjectile => None,
-        };
-        if let Some(range) = engagement_range {
+        if let Some(range) = weapon.engagement_range() {
             let nearest = enemies
                 .iter()
                 .map(|enemy| enemy.translation.truncate())

@@ -123,6 +123,22 @@ impl Weapon {
     pub fn knockback_impulse(&self) -> f32 {
         self.kind.knockback() * self.knockback_mult
     }
+
+    pub(crate) fn threat_radius(&self, ranged_default: f32) -> f32 {
+        match self.kind {
+            WeaponKind::PiercingProjectile => ranged_default,
+            WeaponKind::MeleeSwing => 55.0,
+            WeaponKind::OrbitingOrb => self.orbit_radius * 0.75,
+        }
+    }
+
+    pub(crate) fn engagement_range(&self) -> Option<f32> {
+        match self.kind {
+            WeaponKind::PiercingProjectile => None,
+            WeaponKind::MeleeSwing => Some(self.range * 0.8),
+            WeaponKind::OrbitingOrb => Some(self.orbit_radius),
+        }
+    }
 }
 
 /// A projectile fired by a weapon; pierces through enemies until it expires.
