@@ -41,6 +41,7 @@ Target platform: WebAssembly (browser). Assets generated via the `mmx` CLI.
 - **Dev loop**: dual-target — `cargo run` for native fast iteration, `trunk` for the wasm browser build.
 - **Project structure**: Cargo workspace split into `game-core` (simulation logic) + `app` (bin: rendering, audio, UI) — see ADR 0004.
 - **Determinism**: Runs are seeded and reproducible; a single managed RNG with explicit system ordering — see ADR 0005.
+- **Deployment**: Cloudflare Pages (static Trunk build); the wasm bundle must fit the 25 MiB per-file limit, so Bevy features are trimmed and size-optimized — see ADR 0006.
 - **UI**: Bevy built-in `bevy_ui` for HUD / shop / menu.
 - **State machine**: Bevy `States` for MainMenu → InGame(wave) → Shop → … → Victory/Defeat.
 
