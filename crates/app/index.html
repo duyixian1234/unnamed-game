@@ -21,8 +21,17 @@
         background: #111;
         overflow: hidden;
       }
+      /* Center the fixed-size game canvas in the viewport (letterbox #111).
+         Viewports smaller than 1280x720 clip (accepted limitation). */
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
       canvas {
         display: block;
+        width: 1280px;
+        height: 720px;
       }
     </style>
   </head>
