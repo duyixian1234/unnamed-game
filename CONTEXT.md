@@ -19,6 +19,11 @@ Target platform: WebAssembly (browser). Assets generated via the `mmx` CLI.
 - **Seed**: the initial value of the Run's random number generator. Identical Seeds produce identical Runs (determinism).
 - **Asset**: a static image or audio file generated via mmx, stored in `assets/`.
 - **Knockback (击退)**: brief displacement applied to an Enemy when hit by a Weapon. Each Weapon has its own Knockback strength (data-driven, not a global rule).
+- **Attraction Radius (吸引半径)**: a Player stat. Materials that enter this radius are drawn toward the Player (flight motion) and collected on contact — not instantly credited at distance.
+- **Weapon Level (武器等级)**: the upgrade stage of a WeaponKind, 1 through 6. Shared across all weapons of the same kind.
+- **Weapon Upgrade Path (武器升级路线)**: the per-WeaponKind sequence of upgrades from Level 1 to 6. Each level offers 2 upgrade options; upgrades are free (chosen, not purchased).
+- **Weapon Evolution (武器质变)**: the qualitative, behavior-changing transformation a Weapon undergoes at Level 6. Not a pure stat jump — new behavior code per weapon.
+- **Upgrade Choice (升级选择)**: the mandatory moment after each Wave ends and before the Shop opens, where the Player selects one upgrade option for one Weapon. Cannot be skipped; no rerolls.
 
 ## Decisions (see docs/adr/)
 - Use the Bevy engine, pinned to 0.17.
@@ -31,9 +36,9 @@ Target platform: WebAssembly (browser). Assets generated via the `mmx` CLI.
 - **Art style**: minimal geometric / cartoon — rounded shapes, high-saturation solid colors, thick outline.
 - **Controls**: WASD movement only; weapons auto-aim and auto-fire. No mouse aiming.
 - **Enemy model**: 3 types for MVP — melee-rusher, speed-burster, splitter; straight-line pursuit by default.
-- **Combat / weapon model**: 3 weapons for MVP — melee swing, piercing projectile, orbiting orb. Projectile + hit-scan model done once; adding weapons later is data-only. Up to 6 Weapon Slots.
-- **Economy**: enemies drop Materials → between-wave Shop buys Items (pure stat-boost gains) → character growth. In-wave 3-choice upgrade deferred past MVP.
-- **Wave / difficulty**: fixed 20 waves, escalating count/intensity, shop between waves, survive to 20 to win. One-life roguelike (death = restart). Wave count configurable.
+- **Combat / weapon model**: 3 weapons for MVP — melee swing, piercing projectile, orbiting orb. Projectile + hit-scan model done once; adding weapons later is data-only. Up to 6 Weapon Slots. Each WeaponKind has a 6-level Upgrade Path ending in a Weapon Evolution (behavior change — see ADR 0008). The full Upgrade Path (including the Evolution) is visible to the Player from the start.
+- **Economy**: enemies drop Materials → between-wave Shop buys Items (pure stat-boost gains) → character growth. Materials within the Attraction Radius fly to the Player; any materials still on the ground when a Wave ends are auto-collected. Supersedes the earlier "In-wave 3-choice upgrade deferred past MVP" note: the choice-based upgrade now exists as the wave-end Upgrade Choice.
+- **Wave / difficulty**: fixed 20 waves, escalating count/intensity, shop between waves, survive to 20 to win. One-life roguelike (death = restart). Wave count configurable. Wave flow: InGame → Upgrade Choice → Shop → next Wave.
 - **Wave recovery**: when a Wave ends, the Player recovers 50% of max HP before entering the Shop.
 - **Audio**: SFX only for MVP (hit / pickup / hurt), via mmx TTS → ogg; BGM deferred.
 
