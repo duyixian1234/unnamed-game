@@ -74,8 +74,9 @@ default := "dev"
 
 # ---- Deploy ----------------------------------------------------------------
 
-# Deploy dist/ to Cloudflare Pages (requires build-web first; auth via wrangler login)
-@deploy: build-web
+# Deploy dist/ to Cloudflare Pages: build (incl. manual wasm-opt -Os) + 25 MiB
+# size gate, so an oversized bundle can never reach Pages (auth via wrangler login)
+@deploy: build-web-checked
     npx wrangler pages deploy dist --project-name=unnamed-game
 
 # ---- Assets (mmx-generated sprites/sfx + subsetted font, ADR-0002/0007) ----
