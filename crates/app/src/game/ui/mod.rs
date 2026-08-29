@@ -6,6 +6,7 @@ pub mod end_screen;
 pub mod hud;
 pub mod main_menu;
 pub mod shop;
+pub mod upgrade;
 pub mod weapon_bar;
 
 use bevy::prelude::*;
@@ -20,6 +21,7 @@ impl Plugin for UIPlugin {
             hud::HudPlugin,
             main_menu::MainMenuPlugin,
             shop::ShopPlugin,
+            upgrade::UpgradeScreenPlugin,
             weapon_bar::WeaponBarPlugin,
         ));
     }
