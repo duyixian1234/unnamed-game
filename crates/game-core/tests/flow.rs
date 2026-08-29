@@ -10,20 +10,22 @@
 
 use std::time::Duration;
 
-use bevy::ecs::message::MessageReader;
+use bevy::ecs::message::{MessageReader, Messages};
 use bevy::ecs::schedule::ExecutorKind;
 use bevy::prelude::*;
 use bevy::state::state::{NextState, State, StateTransitionEvent};
 use bevy::time::TimeUpdateStrategy;
 
 use game_core::ai::AiPlugin;
-use game_core::combat::PlayerHurt;
-use game_core::economy::Materials;
+use game_core::combat::{EnemyDied, PlayerHurt};
+use game_core::economy::{MaterialPickedUp, Materials};
 use game_core::enemy::{Enemy, EnemyKind, EnemySpawned};
-use game_core::player::{Health, Player};
+use game_core::intent::{PlayerMoveIntent, PurchaseRequest};
+use game_core::player::{Health, Player, PlayerStats};
 use game_core::rng::Seed;
 use game_core::shop::ItemPurchased;
 use game_core::waves::{Wave, WaveConfig};
+use game_core::weapon::OrbitOrb;
 use game_core::{CorePlugin, GameState, RunEnded, RunOutcome, RunStarted};
 
 /// Fixed timestep of the test harness.
@@ -34,16 +36,21 @@ const STEP: f32 = 1.0 / 60.0;
 struct Recording {
     states: Vec<GameState>,
     spawns: Vec<EnemyKind>,
+    deaths: Vec<EnemyKind>,
     hurts: Vec<f32>,
+    pickups: Vec<u32>,
     purchases: Vec<ItemPurchased>,
     run_started: u32,
     run_ends: Vec<RunOutcome>,
 }
 
+#[allow(clippy::too_many_arguments)] // one reader per recorded message kind
 fn record(
     mut transitions: MessageReader<StateTransitionEvent<GameState>>,
     mut spawns: MessageReader<EnemySpawned>,
+    mut deaths: MessageReader<EnemyDied>,
     mut hurts: MessageReader<PlayerHurt>,
+    mut pickups: MessageReader<MaterialPickedUp>,
     mut purchases: MessageReader<ItemPurchased>,
     mut run_starts: MessageReader<RunStarted>,
     mut run_ends: MessageReader<RunEnded>,
@@ -57,8 +64,14 @@ fn record(
     for spawn in spawns.read() {
         rec.spawns.push(spawn.kind);
     }
+    for death in deaths.read() {
+        rec.deaths.push(death.kind);
+    }
     for hurt in hurts.read() {
         rec.hurts.push(hurt.hp_after);
+    }
+    for pickup in pickups.read() {
+        rec.pickups.push(pickup.amount);
     }
     for purchase in purchases.read() {
         rec.purchases.push(*purchase);
@@ -316,4 +329,171 @@ fn ai_completes_a_short_run_to_victory() {
         last_seen_pos.distance(Vec3::ZERO) > 0.5,
         "AI should have moved the player off spawn"
     );
+}
+
+/// Send a purchase request through the same message path the UI and AI use.
+fn send_purchase(app: &mut App, item_index: usize) {
+    app.world_mut()
+        .resource_mut::<Messages<PurchaseRequest>>()
+        .write(PurchaseRequest { item_index });
+}
+
+/// Catalog index of the item whose name contains `needle`.
+fn catalog_index(needle: &str) -> usize {
+    game_core::shop::SHOP_ITEMS
+        .iter()
+        .position(|item| item.name.contains(needle))
+        .expect("item in shop catalog")
+}
+
+/// Spawn a static one-hit enemy inside the orbiting orb's kill ring (the orb
+/// circles at radius 70 around the player, so x=70 is struck within a frame
+/// or two), letting the weapon system kill it without wave interference.
+fn spawn_static_enemy_at_orb_ring(app: &mut App, kind: EnemyKind, split_depth: u8) {
+    app.world_mut().spawn((
+        Enemy {
+            kind,
+            speed: 0.0,
+            health: 1.0,
+            split_depth,
+        },
+        Transform::from_xyz(70.0, 0.0, 0.0),
+    ));
+}
+
+#[test]
+fn shop_purchase_deducts_applies_and_rejects() {
+    let mut app = headless(42, 5, false);
+    app.update();
+    start_run(&mut app);
+    set_next_state(&mut app, GameState::Shop);
+    step(&mut app);
+    assert_eq!(current_state(&app), GameState::Shop);
+
+    // Affordable +HP item: deducts cost, boosts stats, announces purchase.
+    app.world_mut().resource_mut::<Materials>().count = 30;
+    let titan = catalog_index("Titan's Heart");
+    let titan_cost = game_core::shop::SHOP_ITEMS[titan].cost;
+    send_purchase(&mut app, titan);
+    step(&mut app);
+    assert_eq!(
+        app.world().resource::<Recording>().purchases.last().map(|p| (p.item_index, p.cost)),
+        Some((titan, titan_cost)),
+        "ItemPurchased announced with catalog index and cost"
+    );
+    assert_eq!(app.world().resource::<Materials>().count, 10, "cost deducted");
+    let mut players =
+        app.world_mut().query_filtered::<(&PlayerStats, &Health), With<Player>>();
+    let (stats, health) = players.single(app.world()).expect("player in shop");
+    assert_eq!(stats.max_hp_bonus, 25.0, "stat boost applied");
+    assert_eq!(health.max, 125.0, "max HP raised by the boost");
+    assert_eq!(health.current, 100.0, "current HP clamped, not healed");
+
+    // Unaffordable request: rejected, wallet and stats untouched.
+    app.world_mut().resource_mut::<Materials>().count = 5;
+    let purchases_before = app.world().resource::<Recording>().purchases.len();
+    let sharpened = catalog_index("Sharpened Edge");
+    send_purchase(&mut app, sharpened); // cost 15 > wallet 5
+    step(&mut app);
+    assert_eq!(
+        app.world().resource::<Materials>().count, 5,
+        "rejected purchase must not deduct"
+    );
+    assert_eq!(
+        app.world().resource::<Recording>().purchases.len(),
+        purchases_before,
+        "no ItemPurchased for a rejected request"
+    );
+    let mut stats_only = app.world_mut().query_filtered::<&PlayerStats, With<Player>>();
+    let stats = stats_only.single(app.world()).unwrap();
+    assert_eq!(stats.damage_mult, 1.0, "rejected boost not applied");
+    assert_eq!(stats.max_hp_bonus, 25.0, "earlier purchase intact");
+    assert_eq!(stats.speed_mult, 1.0, "no cross-item leakage");
+
+    // Invalid catalog index: ignored.
+    send_purchase(&mut app, 99);
+    step(&mut app);
+    assert_eq!(app.world().resource::<Materials>().count, 5);
+    assert_eq!(app.world().resource::<Recording>().purchases.len(), purchases_before);
+}
+
+#[test]
+fn economy_loop_kill_drop_pickup() {
+    let mut app = headless(42, 5, false);
+    app.update();
+    start_run(&mut app);
+
+    // Scenario setup: a one-hit enemy inside the orb's kill ring (orb fires
+    // on the frame after the run starts; no wave spawn happens for ~63
+    // frames, so the loop below stays isolated).
+    spawn_static_enemy_at_orb_ring(&mut app, EnemyKind::MeleeRusher, 0);
+
+    // Walk toward the drop via the intent layer until the wallet grows.
+    let mut steps = 0;
+    while steps < 60 {
+        if app.world().resource::<Materials>().count > 0 {
+            break;
+        }
+        app.world_mut().resource_mut::<PlayerMoveIntent>().dir = Vec2::X;
+        step(&mut app);
+        steps += 1;
+    }
+
+    assert_eq!(app.world().resource::<Materials>().count, 1, "pickup credited the wallet");
+    let rec = app.world().resource::<Recording>();
+    assert_eq!(rec.deaths, vec![EnemyKind::MeleeRusher], "enemy died exactly once");
+    assert_eq!(rec.pickups, vec![1], "one material of value 1 was picked up");
+}
+
+#[test]
+fn splitter_death_splits_twice_then_stops() {
+    let mut app = headless(42, 5, false);
+    app.update();
+    start_run(&mut app);
+    // Grandchildren get into contact range during the chain; buff the player
+    // so the split test doesn't turn into a defeat test (scenario setup).
+    buff_player(&mut app);
+
+    // One-shot orb so the whole chain resolves in a few frames, well before
+    // the first wave spawn (~63 frames).
+    let mut orbs = app.world_mut().query::<&mut OrbitOrb>();
+    for mut orb in orbs.iter_mut(app.world_mut()) {
+        orb.damage = 100.0;
+    }
+
+    spawn_static_enemy_at_orb_ring(&mut app, EnemyKind::Splitter, 2);
+
+    let mut first_gen_checked = false;
+    for _ in 0..50 {
+        step(&mut app);
+
+        let splits = {
+            let rec = app.world().resource::<Recording>();
+            rec.spawns.iter().filter(|k| **k == EnemyKind::Splitter).count()
+        };
+        if !first_gen_checked && splits == 2 {
+            let mut enemies = app.world_mut().query::<&Enemy>();
+            let children: Vec<&Enemy> = enemies.iter(app.world()).collect();
+            assert_eq!(children.len(), 2, "first split yields exactly 2 children");
+            assert!(
+                children.iter().all(|e| e.split_depth == 1),
+                "children are one split-depth lower"
+            );
+            first_gen_checked = true;
+        }
+    }
+
+    let rec = app.world().resource::<Recording>();
+    let splits = rec.spawns.iter().filter(|k| **k == EnemyKind::Splitter).count();
+    assert_eq!(splits, 6, "2 children + 4 grandchildren, then the chain stops");
+    assert_eq!(rec.deaths.len(), 7, "parent + 6 descendants die");
+    assert!(rec.deaths.iter().all(|k| *k == EnemyKind::Splitter));
+    assert!(first_gen_checked, "first-generation split was observed");
+    let mut remaining = app.world_mut().query_filtered::<Entity, With<Enemy>>();
+    assert_eq!(
+        remaining.iter(app.world()).count(),
+        0,
+        "field is empty after the chain"
+    );
+    assert_eq!(current_state(&app), GameState::InGame, "still mid-wave (no shop/victory)");
 }
