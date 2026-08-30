@@ -326,8 +326,8 @@ fn update_choice_visuals(
         &mut BackgroundColor,
         &mut BorderColor,
     )>,
-    mut selection_text: Query<&mut Text, With<SelectionText>>,
-    mut details_text: Query<&mut Text, With<RouteDetailsText>>,
+    mut selection_text: Query<&mut Text, (With<SelectionText>, Without<RouteDetailsText>)>,
+    mut details_text: Query<&mut Text, (With<RouteDetailsText>, Without<SelectionText>)>,
 ) {
     for (card, interaction, mut background, mut border) in cards {
         let selected = ui_state.selected == Some(card.kind);
@@ -459,5 +459,18 @@ fn button_hover(
 fn despawn_starting_weapon_screen(mut commands: Commands, roots: Query<Entity, With<ScreenRoot>>) {
     for root in &roots {
         commands.entity(root).despawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn choice_visual_queries_are_compatible() {
+        let mut app = App::new();
+        app.init_resource::<StartingWeaponUiState>()
+            .add_systems(Update, update_choice_visuals);
+        app.update();
     }
 }
