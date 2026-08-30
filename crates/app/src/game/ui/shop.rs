@@ -3,13 +3,14 @@
 
 use bevy::prelude::*;
 
+use game_core::damage::DamageStats;
 use game_core::economy::Materials;
 use game_core::intent::PurchaseRequest;
 use game_core::player::{Health, Player};
 use game_core::shop::SHOP_ITEMS;
 use game_core::GameState;
 
-use super::{ui_font, ScreenRoot};
+use super::{damage_summary_text, ui_font, ScreenRoot};
 
 /// A clickable shop item button, tagged with its catalog index.
 #[derive(Component)]
@@ -29,6 +30,10 @@ struct ShopStatusText;
 #[derive(Component)]
 struct ContinueButton;
 
+/// The shop's wave-damage summary line.
+#[derive(Component)]
+struct ShopDamageSummary;
+
 /// Plugin for the shop screen.
 pub struct ShopPlugin;
 
@@ -42,6 +47,7 @@ impl Plugin for ShopPlugin {
                     request_purchases,
                     handle_continue,
                     update_shop_status,
+                    update_damage_summary,
                     button_hover,
                 )
                     .run_if(in_state(GameState::Shop)),
@@ -54,6 +60,7 @@ fn spawn_shop(
     asset_server: Res<AssetServer>,
     materials: Res<Materials>,
     players: Query<&Health, With<Player>>,
+    damage_stats: Res<DamageStats>,
 ) {
     let wallet = materials.count;
     let health = players
@@ -89,6 +96,12 @@ fn spawn_shop(
                 )),
                 ui_font(&asset_server, 24.0),
                 TextColor(Color::srgb(0.6, 0.4, 0.9)),
+            ));
+            parent.spawn((
+                ShopDamageSummary,
+                Text::new(damage_summary_text(&damage_stats, false)),
+                ui_font(&asset_server, 16.0),
+                TextColor(Color::srgb(0.78, 0.82, 0.90)),
             ));
 
             for (index, item) in SHOP_ITEMS.iter().enumerate() {
@@ -166,6 +179,20 @@ fn update_shop_status(
             "材料: {}   生命: {:.0}/{:.0}",
             materials.count, health.current, health.max
         );
+    }
+}
+
+/// Keep the shop's damage summary in sync (it shows the just-finished wave).
+fn update_damage_summary(
+    damage_stats: Res<DamageStats>,
+    mut summary: Query<&mut Text, With<ShopDamageSummary>>,
+) {
+    if !damage_stats.is_changed() {
+        return;
+    }
+    let text = damage_summary_text(&damage_stats, false);
+    for mut summary in &mut summary {
+        summary.0 = text.clone();
     }
 }
 

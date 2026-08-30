@@ -16,7 +16,7 @@ use crate::GameState;
 pub const MAX_WEAPON_SLOTS: usize = 6;
 
 /// The MVP weapon archetypes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WeaponKind {
     PiercingProjectile,
     MeleeSwing,
@@ -274,6 +274,12 @@ pub struct OrbitOrb {
     pub slot: WeaponSlot,
     /// Stable ordinal within its owning weapon's orb set.
     pub index: u8,
+    /// Global ordinal across every live orb (spawn order): drives the
+    /// alternating spin direction and the per-orb tint.
+    pub ordinal: u8,
+    /// Spin direction: +1 counter-clockwise, -1 clockwise. Alternates by
+    /// global ordinal (ADR-0009 amendment).
+    pub spin: f32,
     /// Enemies hit this frame; Bomber Orb uses this to detect contact.
     pub hit_enemies: Vec<Entity>,
     /// Per-enemy cooldowns make contact damage independent of frame rate.
@@ -293,6 +299,8 @@ pub struct OrbRespawn {
     pub radial_phase: f32,
     pub slot: WeaponSlot,
     pub index: u8,
+    pub ordinal: u8,
+    pub spin: f32,
     pub bomber: bool,
     pub timer: Timer,
 }
@@ -598,6 +606,8 @@ fn update_orbs(
             radial_phase: respawn.radial_phase,
             slot: respawn.slot,
             index: respawn.index,
+            ordinal: respawn.ordinal,
+            spin: respawn.spin,
             hit_enemies: Vec::new(),
             hit_cooldowns: Vec::new(),
         };
@@ -626,6 +636,8 @@ fn update_orbs(
             let angular_phase = ordinal as f32 / total.max(1) as f32;
             orb.angle = std::f32::consts::TAU * angular_phase;
             orb.radial_phase = ordinal as f32 / total.max(1) as f32;
+            orb.ordinal = ordinal as u8;
+            orb.spin = spin_sign(ordinal);
         }
         if let Some((_, damage, knockback, angular_speed, max_radius, source, _, _)) =
             specs.iter().find(|(slot, ..)| *slot == orb.slot)
@@ -636,7 +648,7 @@ fn update_orbs(
             orb.max_radius = *max_radius;
             orb.source = *source;
         }
-        orb.angle += orb.angular_speed * time.delta_secs();
+        orb.angle += orb.spin * orb.angular_speed * time.delta_secs();
         orb.radial_phase = (orb.radial_phase + time.delta_secs() / ORB_RADIUS_CYCLE).fract();
         orb.radius = pulse_radius(orb.max_radius, orb.radial_phase);
         let offset = Vec2::from_angle(orb.angle) * orb.radius;
@@ -678,6 +690,8 @@ fn update_orbs(
                     radial_phase,
                     slot,
                     index,
+                    ordinal: ordinal as u8,
+                    spin: spin_sign(ordinal),
                     hit_enemies: Vec::new(),
                     hit_cooldowns: Vec::new(),
                 },
@@ -700,6 +714,16 @@ fn pulse_radius(max_radius: f32, phase: f32) -> f32 {
     };
     let envelope = progress * progress * (3.0 - 2.0 * progress);
     max_radius * envelope
+}
+
+/// Even ordinals spin counter-clockwise, odd ones clockwise, so consecutive
+/// orbs visibly counter-rotate (ADR-0009 amendment).
+fn spin_sign(ordinal: u32) -> f32 {
+    if ordinal.is_multiple_of(2) {
+        1.0
+    } else {
+        -1.0
+    }
 }
 
 /// Whirlwind evolution: keep one persistent blade per evolved MeleeSwing,
@@ -927,6 +951,8 @@ fn bomber_orb_explosions(
                 radial_phase: orb.radial_phase,
                 slot: orb.slot,
                 index: orb.index,
+                ordinal: orb.ordinal,
+                spin: orb.spin,
                 bomber: true,
                 timer: Timer::from_seconds(BOMBER_RESPAWN, TimerMode::Once),
             });

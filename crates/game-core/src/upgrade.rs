@@ -14,7 +14,7 @@ use bevy::prelude::*;
 
 use crate::damage::WeaponSlot;
 use crate::player::Player;
-use crate::weapon::{StartingWeapon, Weapon, WeaponKind, MAX_WEAPON_SLOTS};
+use crate::weapon::{Weapon, WeaponKind, MAX_WEAPON_SLOTS};
 use crate::GameState;
 
 /// One pick on a weapon's path: a short display label plus the stat
@@ -282,11 +282,13 @@ fn reset_levels(mut levels: ResMut<WeaponLevels>) {
 
 /// Apply one valid choice: bump the kind's level, mutate its weapon stats or
 /// grant the Evolution, then move on to the Shop (exactly one choice per wave).
+#[allow(clippy::type_complexity, clippy::too_many_arguments)] // query disambiguation
 fn apply_upgrades(
     mut requests: MessageReader<UpgradeSelected>,
     mut levels: ResMut<WeaponLevels>,
     mut next_state: ResMut<NextState<GameState>>,
     mut commands: Commands,
+    mut damage_stats: ResMut<crate::damage::DamageStats>,
     players: Query<(Entity, &Transform), With<Player>>,
     mut weapons: Query<(Entity, &mut Weapon, &WeaponSlot), Without<Player>>,
     weapon_slots: Query<&WeaponSlot, Without<Player>>,
@@ -306,9 +308,48 @@ fn apply_upgrades(
         }
 
         if level == 5 {
-            for (entity, weapon, _) in &mut weapons {
-                if weapon.kind == kind {
-                    commands.entity(entity).insert(Evolved);
+            if kind == WeaponKind::MeleeSwing {
+                // Whirlwind evolution: merge every MeleeSwing instance into
+                // the lowest slot, pooling their damage into the single blade
+                // (ADR-0009 amendment) — per-instance blades were
+                // position-identical, so extra slots granted nothing.
+                let mut melee: Vec<(WeaponSlot, Entity)> = weapons
+                    .iter()
+                    .filter(|(_, weapon, _)| weapon.kind == WeaponKind::MeleeSwing)
+                    .map(|(entity, _, slot)| (*slot, entity))
+                    .collect();
+                melee.sort();
+                let mut total_damage = 0.0f32;
+                let mut max_range = 0.0f32;
+                for (_, weapon, _) in weapons.iter() {
+                    if weapon.kind == WeaponKind::MeleeSwing {
+                        total_damage += weapon.damage;
+                        max_range = max_range.max(weapon.range);
+                    }
+                }
+                let Some(&(_, keep)) = melee.first() else {
+                    continue;
+                };
+                let merged_away: Vec<WeaponSlot> =
+                    melee.iter().skip(1).map(|(slot, _)| *slot).collect();
+                for &(_, entity) in melee.iter().skip(1) {
+                    commands.entity(entity).despawn();
+                }
+                commands.entity(keep).insert(Evolved);
+                if let Ok((_, mut weapon, _)) = weapons.get_mut(keep) {
+                    weapon.damage = total_damage;
+                    weapon.range = max_range;
+                }
+                // The merged-away slots' accumulated damage history moves
+                // onto the surviving slot: the summary shows one 旋风刃 line,
+                // not ghost rows for despawned slots.
+                let keep_slot = melee[0].0;
+                damage_stats.merge_slots(&merged_away, keep_slot);
+            } else {
+                for (entity, weapon, _) in &mut weapons {
+                    if weapon.kind == kind {
+                        commands.entity(entity).insert(Evolved);
+                    }
                 }
             }
         } else {
@@ -342,6 +383,26 @@ fn apply_upgrades(
                     weapon.cooldown.duration().as_secs_f32(),
                     TimerMode::Repeating,
                 );
+                // Spread melee attack phases evenly across the shared cooldown
+                // (ADR-0009 amendment): existing instances re-phase to i/n,
+                // the newcomer takes the last n/n slot, so no two melee
+                // weapons ever swing on the same frame.
+                let mut melee: Vec<(WeaponSlot, Entity)> = weapons
+                    .iter_mut()
+                    .filter(|(_, weapon, _)| weapon.kind == WeaponKind::MeleeSwing)
+                    .map(|(entity, _, slot)| (*slot, entity))
+                    .collect();
+                melee.sort();
+                let count = melee.len() + 1;
+                for (index, &(_, entity)) in melee.iter().enumerate() {
+                    if let Ok((_, mut weapon, _)) = weapons.get_mut(entity) {
+                        let offset = weapon.cooldown.duration() * index as u32 / count as u32;
+                        weapon.cooldown.set_elapsed(offset);
+                    }
+                }
+                let offset =
+                    weapon.cooldown.duration() * (count - 1) as u32 / count as u32;
+                weapon.cooldown.set_elapsed(offset);
                 commands.entity(player).with_child((
                     weapon,
                     slot,
@@ -355,17 +416,22 @@ fn apply_upgrades(
     }
 }
 
-/// When every path is already at Lv6 there is nothing left to offer, so the
-/// mandatory choice is vacuous — proceed to the Shop instead of dead-locking.
+/// When every equipped path is already at Lv6 there is nothing left to offer,
+/// so the mandatory choice is vacuous — proceed to the Shop instead of
+/// dead-locking. Keyed on all *equipped* kinds (not just the starting one):
+/// a maxed starting weapon must not skip the upgrade screen while other
+/// weapons can still level — that screen is where the wave damage summary
+/// lives.
+#[allow(clippy::type_complexity)]
 fn auto_advance_when_maxed(
     levels: Res<WeaponLevels>,
-    starting_weapon: Res<StartingWeapon>,
+    weapons: Query<&Weapon, Without<Player>>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    if starting_weapon
-        .selected
-        .is_some_and(|kind| levels.maxed(kind))
-    {
+    let mut kinds: Vec<WeaponKind> = weapons.iter().map(|weapon| weapon.kind).collect();
+    kinds.sort();
+    kinds.dedup();
+    if !kinds.is_empty() && kinds.iter().all(|kind| levels.maxed(*kind)) {
         next_state.set(GameState::Shop);
     }
 }

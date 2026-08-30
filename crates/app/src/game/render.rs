@@ -10,7 +10,9 @@ use bevy::prelude::*;
 use bevy::asset::RenderAssetUsages;
 use bevy::render::render_resource::PrimitiveTopology;
 
+use game_core::damage::WeaponSlot;
 use game_core::economy::Material;
+use game_core::weapon::MAX_WEAPON_SLOTS;
 use game_core::enemy::Enemy;
 use game_core::player::Player;
 use game_core::weapon::{
@@ -109,6 +111,27 @@ fn attach_projectile_sprite(
     }
 }
 
+/// Per-slot melee palette (ADR-0009 amendment): every melee weapon instance
+/// swings in its own color so overlapping attacks are distinguishable.
+/// Warm-hued family, per the melee(warm)-vs-orb(cool) split; the whirlwind
+/// evolution keeps its own dedicated gold.
+const MELEE_PALETTE: [Color; MAX_WEAPON_SLOTS] = [
+    Color::srgb(1.00, 0.82, 0.28), // gold
+    Color::srgb(1.00, 0.55, 0.20), // orange
+    Color::srgb(1.00, 0.40, 0.80), // magenta
+    Color::srgb(1.00, 0.25, 0.25), // red
+    Color::srgb(0.80, 0.50, 1.00), // violet
+    Color::srgb(1.00, 0.95, 0.40), // yellow
+];
+
+/// Blade + trail colors for the melee weapon in `slot`.
+fn melee_colors(slot: u8) -> (Color, Color) {
+    let base = MELEE_PALETTE[slot as usize % MELEE_PALETTE.len()];
+    // The trail is a softer, more transparent wash of the same hue.
+    let srgba = base.to_srgba();
+    (base, Color::srgba(srgba.red, srgba.green, srgba.blue, 0.32))
+}
+
 #[allow(clippy::type_complexity)] // Added<T> + Without<Sprite> disambiguation filters
 fn attach_melee_sprite(
     mut commands: Commands,
@@ -118,15 +141,25 @@ fn attach_melee_sprite(
 ) {
     for (entity, melee, mut transform) in &mut melee_hits {
         transform.rotation = Quat::from_rotation_z(melee.direction.y.atan2(melee.direction.x));
+        let (blade, trail) = melee_colors(
+            melee
+                .source
+                .slot()
+                .unwrap_or(WeaponSlot(0))
+                .0,
+        );
         let mesh = meshes.add(melee_blade_mesh(melee.radius));
-        let material = materials.add(ColorMaterial::from(Color::srgba(1.0, 0.82, 0.28, 0.9)));
+        let material = materials.add(ColorMaterial::from(blade));
         commands
             .entity(entity)
             .insert((Mesh2d(mesh), MeshMaterial2d(material)));
         commands.spawn((
-            MeleeTrail { owner: entity },
+            MeleeTrail {
+                owner: entity,
+                color: trail,
+            },
             Mesh2d(meshes.add(melee_trail_mesh(melee.radius, melee.half_angle))),
-            MeshMaterial2d(materials.add(ColorMaterial::from(Color::srgba(1.0, 0.72, 0.18, 0.32)))),
+            MeshMaterial2d(materials.add(ColorMaterial::from(trail))),
             Transform::from_translation(transform.translation).with_rotation(
                 Quat::from_rotation_z(melee.direction.y.atan2(melee.direction.x)),
             ),
@@ -137,6 +170,7 @@ fn attach_melee_sprite(
 #[derive(Component)]
 struct MeleeTrail {
     owner: Entity,
+    color: Color,
 }
 
 fn animate_melee_swings(
@@ -156,7 +190,15 @@ fn animate_melee_swings(
         transform.rotation = Quat::from_rotation_z(base_angle + sweep);
         transform.scale = Vec3::splat(0.75 + 0.25 * (1.0 - progress));
         if let Some(material) = materials.get_mut(&material.0) {
-            material.color = Color::srgba(1.0, 0.82, 0.28, 0.9 * (1.0 - progress * 0.35));
+            let srgba = melee_colors(melee.source.slot().unwrap_or(WeaponSlot(0)).0)
+                .0
+                .to_srgba();
+            material.color = Color::srgba(
+                srgba.red,
+                srgba.green,
+                srgba.blue,
+                0.9 * (1.0 - progress * 0.35),
+            );
         }
     }
 }
@@ -179,7 +221,13 @@ fn animate_melee_trails(
             1.0
         };
         if let Some(material) = materials.get_mut(&material.0) {
-            material.color = Color::srgba(1.0, 0.72, 0.18, 0.32 * (1.0 - progress));
+            let srgba = trail.color.to_srgba();
+            material.color = Color::srgba(
+                srgba.red,
+                srgba.green,
+                srgba.blue,
+                0.32 * (1.0 - progress),
+            );
         }
     }
 }
@@ -225,19 +273,46 @@ fn melee_trail_mesh(radius: f32, half_angle: f32) -> Mesh {
     mesh_from_positions(positions)
 }
 
-#[allow(clippy::type_complexity)] // Added<T> + Without<Sprite> disambiguation filters
+/// Cool-hued per-orb palette (ADR-0009 amendment): consecutive orbs
+/// counter-rotate in distinct colors. Independent from the warm melee
+/// palette so the two weapon families read differently.
+const ORB_PALETTE: [Color; MAX_WEAPON_SLOTS] = [
+    Color::srgb(0.45, 0.85, 1.00), // ice blue
+    Color::srgb(0.55, 1.00, 0.80), // mint
+    Color::srgb(0.75, 0.70, 1.00), // lavender
+    Color::srgb(0.30, 0.90, 0.85), // teal
+    Color::srgb(0.65, 0.80, 1.00), // periwinkle
+    Color::srgb(0.90, 0.95, 1.00), // white ice
+];
+
+fn orb_color(ordinal: u8) -> Color {
+    ORB_PALETTE[ordinal as usize % ORB_PALETTE.len()]
+}
+
+/// Orbs render at 18px to exactly match the orb hitbox. Runs on every
+/// `Added<OrbitOrb>` — including a Bomber Orb's respawn, which re-inserts the
+/// component (and a fresh scale-1 Transform) on an entity that already has
+/// its sprite, so the scale must be re-applied there too.
+#[allow(clippy::type_complexity)] // Added<T> + Option<&mut Sprite> disambiguation
 fn attach_orb_sprite(
     mut commands: Commands,
     sprite_assets: Res<SpriteAssets>,
-    mut orbs: Query<(Entity, &mut Transform), (Added<OrbitOrb>, Without<Sprite>)>,
+    mut orbs: Query<
+        (Entity, &OrbitOrb, Option<&mut Sprite>, &mut Transform),
+        Added<OrbitOrb>,
+    >,
 ) {
-    // The sim spawns orbs unscaled; render at 18px to exactly match the
-    // orb hitbox.
-    for (entity, mut transform) in &mut orbs {
+    for (entity, orb, sprite, mut transform) in &mut orbs {
         transform.scale = Vec3::splat(ORB_HIT_RADIUS * 2.0 / ATLAS_CELL as f32);
-        commands
-            .entity(entity)
-            .insert(atlas_sprite(&sprite_assets, atlas_index::ORB));
+        match sprite {
+            // Respawned orb: sprite survives, only tint and scale refresh.
+            Some(mut sprite) => sprite.color = orb_color(orb.ordinal),
+            None => {
+                let mut new_sprite = atlas_sprite(&sprite_assets, atlas_index::ORB);
+                new_sprite.color = orb_color(orb.ordinal);
+                commands.entity(entity).insert(new_sprite);
+            }
+        }
     }
 }
 

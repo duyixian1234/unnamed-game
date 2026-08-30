@@ -9,7 +9,7 @@ use bevy::prelude::*;
 
 use game_core::damage::DamageStats;
 use game_core::upgrade::{UpgradeSelected, WeaponLevels, UPGRADE_PATHS};
-use game_core::weapon::{StartingWeapon, WeaponKind};
+use game_core::weapon::{StartingWeapon, Weapon, WeaponKind};
 use game_core::GameState;
 
 use super::{damage_summary_text, ui_font, ScreenRoot};
@@ -49,7 +49,20 @@ fn spawn_upgrade_screen(
     levels: Res<WeaponLevels>,
     starting_weapon: Res<StartingWeapon>,
     damage_stats: Res<DamageStats>,
+    weapons: Query<&Weapon>,
 ) {
+    // Every equipped kind gets a column (not just the starting weapon): once
+    // the starting path is maxed, its column alone would leave no clickable
+    // pick — and the damage summary below is the point of this screen.
+    let mut equipped_kinds: Vec<WeaponKind> = WeaponKind::ALL
+        .iter()
+        .filter(|kind| weapons.iter().any(|weapon| weapon.kind == **kind))
+        .copied()
+        .collect();
+    if equipped_kinds.is_empty() {
+        equipped_kinds = starting_weapon.selected.into_iter().collect();
+    }
+
     commands
         .spawn((
             ScreenRoot,
@@ -87,16 +100,34 @@ fn spawn_upgrade_screen(
                     TextColor(Color::srgb(0.78, 0.82, 0.90)),
                 ));
 
-            if let Some(kind) = starting_weapon.selected {
-                if let Some(path) = UPGRADE_PATHS.iter().find(|path| path.kind == kind) {
-                    spawn_path_ui(parent, &asset_server, path, levels.level(path.kind));
-                }
-            } else {
+            if equipped_kinds.is_empty() {
                 parent.spawn((
                     Text::new("尚未选择武器"),
                     ui_font(&asset_server, 24.0),
                     TextColor(Color::srgb(0.8, 0.4, 0.4)),
                 ));
+            } else {
+                parent
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        justify_content: JustifyContent::Center,
+                        column_gap: Val::Px(36.0),
+                        ..default()
+                    })
+                    .with_children(|columns| {
+                        for kind in equipped_kinds {
+                            if let Some(path) =
+                                UPGRADE_PATHS.iter().find(|path| path.kind == kind)
+                            {
+                                spawn_path_ui(
+                                    columns,
+                                    &asset_server,
+                                    path,
+                                    levels.level(path.kind),
+                                );
+                            }
+                        }
+                    });
             }
         });
 }

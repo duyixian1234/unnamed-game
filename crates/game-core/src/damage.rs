@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use bevy::prelude::*;
 
+use crate::upgrade::{Evolution, path_for};
 use crate::weapon::WeaponKind;
 
 /// Stable identity of one equipped Weapon Slot.
@@ -17,10 +18,23 @@ pub enum DamageSource {
     Other,
 }
 
+impl DamageSource {
+    /// The weapon slot this damage came from, if any.
+    pub fn slot(self) -> Option<WeaponSlot> {
+        match self {
+            DamageSource::Weapon { slot, .. } => Some(slot),
+            DamageSource::Other => None,
+        }
+    }
+}
+
 /// Effective Damage attributed to one Weapon Slot in a period.
 #[derive(Debug, Clone, Copy)]
 pub struct SlotDamage {
     pub kind: WeaponKind,
+    /// Set when the slot's weapon reached Level 6 (ADR-0008): summaries
+    /// display the evolution's name instead of the base kind's.
+    pub evolution: Option<Evolution>,
     pub effective_damage: f32,
 }
 
@@ -62,6 +76,7 @@ impl DamagePeriod {
             DamageSource::Weapon { slot, kind } => {
                 let entry = self.slots.entry(slot).or_insert(SlotDamage {
                     kind,
+                    evolution: None,
                     effective_damage: 0.0,
                 });
                 entry.effective_damage += effective_damage;
@@ -70,11 +85,39 @@ impl DamagePeriod {
         }
     }
 
-    fn register_weapon(&mut self, slot: WeaponSlot, kind: WeaponKind) {
-        self.slots.entry(slot).or_insert(SlotDamage {
+    /// Register (or refresh) a slot's identity. Public so tests can set up
+    /// scenario summaries directly (same pattern as `WeaponLevels::set_level`).
+    pub     fn register_weapon(
+        &mut self,
+        slot: WeaponSlot,
+        kind: WeaponKind,
+        evolution: Option<Evolution>,
+    ) {
+        let entry = self.slots.entry(slot).or_insert(SlotDamage {
             kind,
+            evolution,
             effective_damage: 0.0,
         });
+        // Re-registering always refreshes the identity: a slot's weapon may
+        // have evolved since the period began (e.g. the run total).
+        entry.kind = kind;
+        entry.evolution = evolution;
+    }
+
+    /// Fold `from`'s contribution into `into` and drop the `from` entry.
+    fn merge_slot(&mut self, from: WeaponSlot, into: WeaponSlot) {
+        let Some(removed) = self.slots.remove(&from) else {
+            return;
+        };
+        let entry = self
+            .slots
+            .entry(into)
+            .or_insert(SlotDamage {
+                kind: removed.kind,
+                evolution: removed.evolution,
+                effective_damage: 0.0,
+            });
+        entry.effective_damage += removed.effective_damage;
     }
 }
 
@@ -97,6 +140,17 @@ impl DamageStats {
         self.run.record(source, effective_damage);
     }
 
+    /// Fold every `from` slot's contribution into `into` and remove the
+    /// `from` entries, so a weapon merged away (Whirlwind evolution) keeps
+    /// its accumulated history on the surviving slot instead of leaving
+    /// ghost rows in summaries.
+    pub(crate) fn merge_slots(&mut self, from: &[WeaponSlot], into: WeaponSlot) {
+        for slot in from {
+            self.current_wave.merge_slot(*slot, into);
+            self.run.merge_slot(*slot, into);
+        }
+    }
+
     pub(crate) fn mark_wave_completed(&mut self) {
         self.current_wave_completed = true;
     }
@@ -105,17 +159,20 @@ impl DamageStats {
 pub(crate) fn begin_wave(
     mut stats: ResMut<DamageStats>,
     starting_weapon: Res<crate::weapon::StartingWeapon>,
-    weapons: Query<(&WeaponSlot, &crate::weapon::Weapon)>,
+    weapons: Query<(&WeaponSlot, &crate::weapon::Weapon, Option<&crate::upgrade::Evolved>)>,
 ) {
     stats.current_wave = DamagePeriod::default();
     stats.current_wave_completed = false;
     if let Some(kind) = starting_weapon.selected {
-        stats.current_wave.register_weapon(WeaponSlot(0), kind);
-        stats.run.register_weapon(WeaponSlot(0), kind);
+        stats.current_wave.register_weapon(WeaponSlot(0), kind, None);
+        stats.run.register_weapon(WeaponSlot(0), kind, None);
     }
-    for (slot, weapon) in &weapons {
-        stats.current_wave.register_weapon(*slot, weapon.kind);
-        stats.run.register_weapon(*slot, weapon.kind);
+    for (slot, weapon, evolved) in &weapons {
+        let evolution = evolved.map(|_| path_for(weapon.kind).evolution);
+        stats
+            .current_wave
+            .register_weapon(*slot, weapon.kind, evolution);
+        stats.run.register_weapon(*slot, weapon.kind, evolution);
     }
 }
 

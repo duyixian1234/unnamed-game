@@ -70,10 +70,14 @@ pub fn damage_summary_text(stats: &DamageStats, incomplete_label: bool) -> Strin
         has_slot = true;
         let last_damage = last.map_or(0.0, |value| value.effective_damage);
         let run_damage = run.map_or(0.0, |value| value.effective_damage);
+        let name = slot
+            .evolution
+            .map(|evolution| evolution.name())
+            .unwrap_or_else(|| slot.kind.display_name());
         lines.push(format!(
             "槽位{} · {}　{}：{}　累计：{}",
             index + 1,
-            slot.kind.display_name(),
+            name,
             wave_label,
             format_damage(&stats.last_wave, last_damage),
             format_damage(&stats.run, run_damage),
@@ -111,9 +115,36 @@ fn format_damage(period: &DamagePeriod, damage: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_core::upgrade::Evolution;
 
     #[test]
     fn zero_damage_uses_stable_percentage_format() {
         assert_eq!(format_damage(&DamagePeriod::default(), 0.0), "0 伤害 · 0%");
+    }
+
+    #[test]
+    fn evolved_weapon_displays_its_evolution_name() {
+        let mut stats = DamageStats::default();
+        stats.last_wave.register_weapon(
+            WeaponSlot(0),
+            game_core::weapon::WeaponKind::MeleeSwing,
+            Some(Evolution::Whirlwind),
+        );
+        let text = damage_summary_text(&stats, false);
+        assert!(
+            text.contains("旋风刃"),
+            "evolved slot must display the evolution name, got: {text}"
+        );
+        assert!(!text.contains("近战弧光"), "base name must be replaced");
+
+        // Un-evolved slots keep the base kind name.
+        let mut stats = DamageStats::default();
+        stats.last_wave.register_weapon(
+            WeaponSlot(1),
+            game_core::weapon::WeaponKind::MeleeSwing,
+            None,
+        );
+        let text = damage_summary_text(&stats, false);
+        assert!(text.contains("近战弧光"));
     }
 }

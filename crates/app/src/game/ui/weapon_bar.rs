@@ -56,18 +56,25 @@ fn despawn_weapon_bar(mut commands: Commands, roots: Query<Entity, With<WeaponBa
     }
 }
 
-/// Append an icon for every weapon that doesn't have one yet.
+/// Append an icon for every weapon that doesn't have one yet, and drop icons
+/// whose weapon entity is gone (e.g. melee slots merged away by the Whirlwind
+/// evolution).
 fn sync_weapon_bar(
     mut commands: Commands,
     sprite_assets: Res<SpriteAssets>,
     bars: Query<Entity, With<WeaponBarRoot>>,
     weapons: Query<(Entity, &Weapon)>,
-    icons: Query<&WeaponIcon>,
+    icons: Query<(Entity, &WeaponIcon)>,
 ) {
     let Ok(bar) = bars.single() else {
         return;
     };
-    let tagged: HashSet<Entity> = icons.iter().map(|icon| icon.0).collect();
+    let tagged: HashSet<Entity> = icons.iter().map(|(_, icon)| icon.0).collect();
+    for (icon_entity, icon) in &icons {
+        if weapons.get(icon.0).is_err() {
+            commands.entity(icon_entity).despawn();
+        }
+    }
     for (entity, weapon) in &weapons {
         if tagged.contains(&entity) {
             continue;

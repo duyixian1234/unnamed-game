@@ -26,11 +26,11 @@ use game_core::intent::{PlayerMoveIntent, PurchaseRequest};
 use game_core::player::{Health, Player, PlayerStats};
 use game_core::rng::Seed;
 use game_core::shop::ItemPurchased;
-use game_core::upgrade::{UpgradeSelected, WeaponLevels};
+use game_core::upgrade::{Evolved, UpgradeSelected, WeaponLevels};
 use game_core::waves::{Wave, WaveCompleted, WaveConfig, WaveStarted};
 use game_core::weapon::{
     BomberOrb, MeleeHit, OrbitOrb, Projectile, StartingWeapon, StartingWeaponSelected, Weapon,
-    WeaponKind,
+    WeaponKind, Whirlwind,
 };
 use game_core::{CorePlugin, GameState, RunEnded, RunOutcome, RunStarted};
 
@@ -1152,6 +1152,225 @@ fn melee_upgrade_adds_independent_weapon_slot_with_shared_stats() {
         .map(|weapon| weapon.damage)
         .collect();
     assert_eq!(damages, vec![40.0, 40.0]);
+}
+
+#[test]
+fn added_melee_weapons_attack_with_staggered_phases() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
+    set_next_state(&mut app, GameState::UpgradeChoice);
+    step(&mut app);
+
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 1);
+    step(&mut app);
+    step(&mut app);
+
+    let mut weapons = app
+        .world_mut()
+        .query_filtered::<&Weapon, Without<Player>>();
+    let mut phases: Vec<f32> = weapons
+        .iter(app.world())
+        .filter(|weapon| weapon.kind == WeaponKind::MeleeSwing)
+        .map(|weapon| {
+            weapon.cooldown.elapsed_secs() / weapon.cooldown.duration().as_secs_f32()
+        })
+        .collect();
+    phases.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert_eq!(phases.len(), 2);
+    assert!(
+        (phases[1] - phases[0] - 0.5).abs() < 1e-4,
+        "two melee slots must be half a cooldown apart, got {phases:?}"
+    );
+}
+
+#[test]
+fn melee_evolution_folds_merged_slots_run_stats_into_surviving_slot() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
+    buff_player(&mut app);
+    // Zero knockback so the tanky test enemy stays inside the fan reach and
+    // both melee slots can land damage on it.
+    for mut weapon in app
+        .world_mut()
+        .query::<&mut Weapon>()
+        .iter_mut(app.world_mut())
+    {
+        weapon.knockback_mult = 0.0;
+    }
+
+    // A second melee weapon through the real flow.
+    set_next_state(&mut app, GameState::UpgradeChoice);
+    step(&mut app);
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 1);
+    step(&mut app);
+    step(&mut app);
+    set_next_state(&mut app, GameState::InGame);
+    step(&mut app);
+
+    // A tanky enemy in reach of the fan so both slots land damage.
+    app.world_mut().spawn((
+        Enemy {
+            kind: EnemyKind::MeleeRusher,
+            speed: 0.0,
+            health: 10_000.0,
+            split_depth: 0,
+        },
+        Transform::from_xyz(60.0, 0.0, 0.0),
+    ));
+    for _ in 0..240 {
+        step(&mut app);
+        let stats = app.world().resource::<DamageStats>();
+        let dmg = |slot: WeaponSlot| {
+            stats
+                .run
+                .slot(slot)
+                .map(|s| s.effective_damage)
+                .unwrap_or(0.0)
+        };
+        if dmg(WeaponSlot(0)) > 0.0 && dmg(WeaponSlot(1)) > 0.0 {
+            break;
+        }
+    }
+    let stats = app.world().resource::<DamageStats>();
+    let slot0 = stats.run.slot(WeaponSlot(0)).unwrap().effective_damage;
+    let slot1 = stats.run.slot(WeaponSlot(1)).unwrap().effective_damage;
+    assert!(slot0 > 0.0 && slot1 > 0.0, "both melee slots dealt damage");
+
+    // Evolve: the merged-away slot's history folds into the survivor.
+    app.world_mut()
+        .resource_mut::<WeaponLevels>()
+        .set_level(WeaponKind::MeleeSwing, 5);
+    set_next_state(&mut app, GameState::UpgradeChoice);
+    step(&mut app);
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 0);
+    step(&mut app);
+    step(&mut app);
+
+    let stats = app.world().resource::<DamageStats>();
+    assert!(
+        stats.run.slot(WeaponSlot(1)).is_none(),
+        "merged-away slot must not leave a ghost summary row"
+    );
+    let pooled = stats.run.slot(WeaponSlot(0)).unwrap();
+    assert!(
+        (pooled.effective_damage - (slot0 + slot1)).abs() < 0.1,
+        "survivor slot holds the pooled history: {} vs {} + {}",
+        pooled.effective_damage,
+        slot0,
+        slot1
+    );
+}
+
+#[test]
+fn melee_lv6_evolution_merges_all_melee_slots_into_one_whirlwind() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
+
+    // Acquire a second melee weapon (额外近战武器 +1) through the real flow.
+    set_next_state(&mut app, GameState::UpgradeChoice);
+    step(&mut app);
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 1);
+    step(&mut app);
+    step(&mut app);
+    assert_eq!(current_state(&app), GameState::Shop);
+
+    // Level the path to 5, then make the Lv6 evolution pick.
+    app.world_mut()
+        .resource_mut::<WeaponLevels>()
+        .set_level(WeaponKind::MeleeSwing, 5);
+    set_next_state(&mut app, GameState::UpgradeChoice);
+    step(&mut app);
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 0);
+    step(&mut app);
+    step(&mut app);
+    assert_eq!(current_state(&app), GameState::Shop);
+
+    // Exactly one melee weapon survives, holding the pooled damage.
+    let mut weapons = app
+        .world_mut()
+        .query_filtered::<(Entity, &Weapon), Without<Player>>();
+    let melee: Vec<_> = weapons
+        .iter(app.world())
+        .filter(|(_, weapon)| weapon.kind == WeaponKind::MeleeSwing)
+        .collect();
+    assert_eq!(melee.len(), 1, "all melee instances merge into one");
+    let (kept, weapon) = melee[0];
+    assert_eq!(weapon.damage, 80.0, "merged blade pools both weapons' damage");
+    assert!(
+        app.world().get::<Evolved>(kept).is_some(),
+        "the merged weapon is the evolved one"
+    );
+    assert_eq!(weapon.range, 105.0, "range comes from the max-level template");
+
+    // Back in the wave, exactly one whirlwind blade fights for that slot.
+    set_next_state(&mut app, GameState::InGame);
+    step(&mut app);
+    let mut whirlwinds = app.world_mut().query::<&Whirlwind>();
+    let blades: Vec<_> = whirlwinds.iter(app.world()).collect();
+    assert_eq!(blades.len(), 1, "one merged blade, not one per slot");
+    assert_eq!(blades[0].damage, 80.0);
+}
+
+#[test]
+fn orbit_orbs_alternate_spin_direction_and_ordinal() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run_with_weapon(&mut app, WeaponKind::OrbitingOrb);
+    for mut weapon in app
+        .world_mut()
+        .query::<&mut Weapon>()
+        .iter_mut(app.world_mut())
+    {
+        weapon.orb_count = 3;
+    }
+    step(&mut app);
+
+    let mut orbs = app.world_mut().query::<&OrbitOrb>();
+    let mut orbs: Vec<&OrbitOrb> = orbs.iter(app.world()).collect();
+    orbs.sort_by_key(|orb| orb.ordinal);
+    assert_eq!(orbs.len(), 3);
+    assert_eq!(
+        orbs.iter().map(|orb| orb.spin).collect::<Vec<_>>(),
+        vec![1.0, -1.0, 1.0],
+        "even ordinals spin counter-clockwise, odd ones clockwise"
+    );
+
+    // A few frames later the counter-rotating orbs must have moved apart.
+    let angles_before: Vec<f32> = orbs.iter().map(|orb| orb.angle).collect();
+    for _ in 0..12 {
+        step(&mut app);
+    }
+    let mut orbs = app.world_mut().query::<&OrbitOrb>();
+    let mut orbs: Vec<&OrbitOrb> = orbs.iter(app.world()).collect();
+    orbs.sort_by_key(|orb| orb.ordinal);
+    let deltas: Vec<f32> = orbs
+        .iter()
+        .zip(angles_before)
+        .map(|(orb, before)| orb.angle - before)
+        .collect();
+    assert!(
+        deltas[0] * deltas[1] < 0.0 && deltas[1] * deltas[2] < 0.0,
+        "adjacent orbs must rotate in opposite directions, got {deltas:?}"
+    );
 }
 
 #[test]
