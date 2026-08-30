@@ -1,0 +1,14 @@
+{
+  "name": "unnamed-game-e2e",
+  "private": true,
+  "packageManager": "pnpm@11.23.0",
+  "scripts": {
+    "build:web": "cd ../crates/app && trunk build --release",
+    "test": "pnpm run build:web && playwright test",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "http-server": "14.1.1"
+  }
+}

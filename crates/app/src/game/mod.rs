@@ -8,9 +8,10 @@ pub mod render;
 pub mod ui;
 
 use bevy::prelude::*;
+use bevy::state::state::StateTransitionEvent;
 
 use game_core::rng::Seed;
-use game_core::CorePlugin;
+use game_core::{CorePlugin, GameState};
 
 /// App-layer plugins: sprite assets, SFX playback, sprite attachment,
 /// keyboard intent, and UI screens.
@@ -37,5 +38,14 @@ impl Plugin for AppPlugin {
         // Simulation last, so app systems can order against core systems if
         // ever needed; core is otherwise self-contained.
         app.add_plugins(CorePlugin);
+        app.add_systems(Update, log_state_transitions);
+    }
+}
+
+fn log_state_transitions(mut transitions: MessageReader<StateTransitionEvent<GameState>>) {
+    for transition in transitions.read() {
+        if let Some(state) = transition.entered {
+            info!("[game-state] {state:?}");
+        }
     }
 }
