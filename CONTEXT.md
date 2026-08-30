@@ -3,13 +3,14 @@
 ## Vision
 2D top-down, auto-attack horde-survival roguelike modeled on Brotato ("土豆兄弟").
 Target platform: WebAssembly (browser). Assets generated via the `mmx` CLI.
+Current gameplay version: 0.5.0.
 
 ## Glossary
 
 - **Player**: the player-controlled avatar. Manual movement (WASD), weapons auto-fire.
-- **Weapon**: an auto-attacking armament equipped in a Weapon Slot.
-- **Weapon Slot**: one equipped Weapon instance that attacks and records its damage independently, even when another slot holds the same WeaponKind.
-- **Starting Weapon Choice (初始武器选择)**: the mandatory choice of one WeaponKind before a Run begins. The Player starts the Run with only the selected Weapon.
+- **Weapon**: an auto-attacking armament equipped in a Weapon Slot. A Run may contain multiple instances of the same WeaponKind.
+- **Weapon Slot**: one equipped Weapon instance that attacks and records its damage independently, even when another slot holds the same WeaponKind. A Run supports up to 6 slots.
+- **Starting Weapon Choice (初始武器选择)**: the mandatory choice of one WeaponKind before a Run begins. The Player starts the Run with one instance of only the selected WeaponKind.
 - **Auto-attack**: weapons target and fire at enemies without manual aiming.
 - **Enemy**: a hostile unit spawned in waves that chases/attacks the Player.
 - **Wave**: a timed phase during which enemies spawn; ends after a duration or condition (TBD).
@@ -24,6 +25,8 @@ Target platform: WebAssembly (browser). Assets generated via the `mmx` CLI.
 - **Weapon Level (武器等级)**: the upgrade stage of a WeaponKind, 1 through 6. Shared across all weapons of the same kind.
 - **Weapon Upgrade Path (武器升级路线)**: the per-WeaponKind sequence of upgrades from Level 1 to 6. Each level offers 2 upgrade options; upgrades are free (chosen, not purchased).
 - **Weapon Evolution (武器质变)**: the qualitative, behavior-changing transformation a Weapon undergoes at Level 6. Not a pure stat jump — new behavior code per weapon.
+- **Melee Fan (近战扇形)**: a 120-degree close-range attack centered on the nearest enemy, damaging every enemy inside the fan.
+- **Orb Pulse (球体脉动)**: the Orbiting Orb's repeated movement from the Player's center to its maximum radius and back to the center.
 - **Upgrade Choice (升级选择)**: the mandatory moment after each Wave ends and before the Shop opens, where the Player selects one upgrade option for one Weapon. Cannot be skipped; no rerolls.
 - **Effective Damage (有效伤害)**: the amount of Enemy health actually removed by an attack, capped by the Enemy's remaining health. Overkill is excluded.
 - **Weapon Damage Contribution (武器输出贡献)**: a Weapon Slot's Effective Damage during one Wave or across the current Run, shown together with its share of all Effective Damage in the same period. Non-weapon damage is grouped as Other.
@@ -38,12 +41,14 @@ Target platform: WebAssembly (browser). Assets generated via the `mmx` CLI.
 
 - **Art style**: minimal geometric / cartoon — rounded shapes, high-saturation solid colors, thick outline.
 - **Controls**: WASD movement only; weapons auto-aim and auto-fire. No mouse aiming.
-- **Enemy model**: 3 types for MVP — melee-rusher, speed-burster, splitter; straight-line pursuit by default.
-- **Combat / weapon model**: 3 weapons for MVP — melee swing, piercing projectile, orbiting orb. Projectile + hit-scan model done once; adding weapons later is data-only. The current version uses one Weapon Slot chosen at the start of the Run; support for up to 6 slots is reserved for a future version. Each WeaponKind has a 6-level Upgrade Path ending in a Weapon Evolution (behavior change — see ADR 0008). The selected Weapon's full Upgrade Path (including the Evolution) is visible from the Starting Weapon Choice onward.
+- **Enemy model**: 3 types — melee-rusher, speed-burster, splitter; straight-line pursuit by default.
+- **Combat / weapon model**: 3 weapons — melee swing, piercing projectile, orbiting orb. A Run supports up to 6 Weapon Slots, and upgrades can add independent instances of the selected WeaponKind. Each WeaponKind has a 6-level Upgrade Path ending in a Weapon Evolution (behavior change — see ADR 0008). The selected Weapon's full Upgrade Path (including the Evolution) is visible from the Starting Weapon Choice onward.
+- **Melee behavior**: base melee attacks use a 120-degree fan centered on the nearest enemy and affect all enemies inside it. The Level-6 Whirlwind evolution remains a 360-degree continuous attack.
+- **Orb behavior**: each orb retains angular movement while its radius smoothly pulses from 0 to maximum and back to 0 over 1.2 seconds. Multiple orbs are evenly distributed in angular and radial phase; each orb explodes and respawns independently after the Bomber Orb evolution.
 - **Economy**: enemies drop Materials → between-wave Shop buys Items (pure stat-boost gains) → character growth. Materials within the Attraction Radius fly to the Player; any materials still on the ground when a Wave ends are auto-collected. Supersedes the earlier "In-wave 3-choice upgrade deferred past MVP" note: the choice-based upgrade now exists as the wave-end Upgrade Choice.
 - **Wave / difficulty**: fixed 20 waves, escalating count/intensity, shop between waves, survive to 20 to win. One-life roguelike (death = restart). Wave count configurable. Wave flow: InGame → Upgrade Choice → Shop → next Wave.
 - **Wave recovery**: when a Wave ends, the Player recovers 50% of max HP before entering the Shop.
-- **Audio**: SFX only for MVP (hit / pickup / hurt), via mmx TTS → ogg; BGM deferred.
+- **Audio**: SFX only (hit / pickup / hurt), via mmx TTS → ogg; BGM deferred.
 
 ## Technical decisions (settled)
 - **Engine/rendering**: Bevy 0.17, pure 2D sprites. WebAssembly render backend = **WebGPU** (not WebGL2).

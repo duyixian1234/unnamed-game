@@ -168,7 +168,9 @@ fn resolve_melee_hits(
                 continue;
             }
             let enemy_pos = enemy_transform.translation.truncate();
-            if !circle_hits_enemy(melee_pos, melee_radius, enemy_pos, &enemy) {
+            if !circle_hits_enemy(melee_pos, melee_radius, enemy_pos, &enemy)
+                || melee.direction.angle_to(enemy_pos - melee_pos).abs() > melee.half_angle
+            {
                 continue;
             }
             melee.hit_enemies.push(enemy_entity);

@@ -12,8 +12,9 @@ use std::collections::HashMap;
 use bevy::ecs::message::Message;
 use bevy::prelude::*;
 
+use crate::damage::WeaponSlot;
 use crate::player::Player;
-use crate::weapon::{StartingWeapon, Weapon, WeaponKind};
+use crate::weapon::{StartingWeapon, Weapon, WeaponKind, MAX_WEAPON_SLOTS};
 use crate::GameState;
 
 /// One pick on a weapon's path: a short display label plus the stat
@@ -33,6 +34,8 @@ pub enum StatMod {
     ProjectileSpeed(f32),
     OrbitSpeed(f32),
     OrbitRadius(f32),
+    AdditionalWeapon,
+    AdditionalOrb,
 }
 
 /// The Level-6 Evolution of a path (ADR-0008: hard-coded behavior change).
@@ -83,8 +86,8 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
                     mods: &[StatMod::Damage(1.25)],
                 },
                 UpgradeOption {
-                    label: "范围 +20%",
-                    mods: &[StatMod::Range(1.2)],
+                    label: "额外近战武器 +1",
+                    mods: &[StatMod::AdditionalWeapon],
                 },
             ],
             [
@@ -93,8 +96,8 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
                     mods: &[StatMod::Cooldown(0.85)],
                 },
                 UpgradeOption {
-                    label: "击退 +50%",
-                    mods: &[StatMod::Knockback(1.5)],
+                    label: "额外近战武器 +1",
+                    mods: &[StatMod::AdditionalWeapon],
                 },
             ],
             [
@@ -183,7 +186,7 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
             ],
             [
                 UpgradeOption {
-                    label: "环绕半径 +25%",
+                    label: "最大半径 +25%",
                     mods: &[StatMod::OrbitRadius(1.25)],
                 },
                 UpgradeOption {
@@ -197,8 +200,8 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
                     mods: &[StatMod::Damage(1.25)],
                 },
                 UpgradeOption {
-                    label: "环绕半径 +20%",
-                    mods: &[StatMod::OrbitRadius(1.2)],
+                    label: "额外环绕球 +1",
+                    mods: &[StatMod::AdditionalOrb],
                 },
             ],
             [
@@ -224,8 +227,8 @@ pub fn path_for(kind: WeaponKind) -> &'static WeaponUpgradePath {
         .expect("every WeaponKind has an upgrade path")
 }
 
-/// Per-WeaponKind upgrade level (1..=6). Shared across the (currently single)
-/// weapon of each kind; starts at 1.
+/// Per-WeaponKind upgrade level (1..=6). Shared across every instance of a
+/// kind; starts at 1.
 #[derive(Resource, Debug, Default)]
 pub struct WeaponLevels {
     levels: HashMap<WeaponKind, u8>,
@@ -284,7 +287,9 @@ fn apply_upgrades(
     mut levels: ResMut<WeaponLevels>,
     mut next_state: ResMut<NextState<GameState>>,
     mut commands: Commands,
-    mut weapons: Query<(Entity, &mut Weapon), Without<Player>>,
+    players: Query<(Entity, &Transform), With<Player>>,
+    mut weapons: Query<(Entity, &mut Weapon, &WeaponSlot), Without<Player>>,
+    weapon_slots: Query<&WeaponSlot, Without<Player>>,
 ) {
     for request in requests.read() {
         let kind = request.kind;
@@ -296,16 +301,52 @@ fn apply_upgrades(
         if level < 5 && request.option > 1 {
             continue;
         }
-        let Some((entity, mut weapon)) = weapons.iter_mut().find(|(_, w)| w.kind == kind) else {
+        if !weapons.iter().any(|(_, weapon, _)| weapon.kind == kind) {
             continue;
-        };
+        }
 
         if level == 5 {
-            commands.entity(entity).insert(Evolved);
+            for (entity, weapon, _) in &mut weapons {
+                if weapon.kind == kind {
+                    commands.entity(entity).insert(Evolved);
+                }
+            }
         } else {
             let option = &path_for(kind).levels[(level - 1) as usize][request.option];
+            let mut add_weapon = false;
+            let mut template = None;
             for m in option.mods {
-                apply_mod(&mut weapon, *m);
+                if matches!(m, StatMod::AdditionalWeapon) {
+                    add_weapon = true;
+                }
+                for (_, mut weapon, _) in &mut weapons {
+                    if weapon.kind == kind {
+                        apply_mod(&mut weapon, *m);
+                        template = Some(weapon.clone_for_new_slot());
+                    }
+                }
+            }
+            if add_weapon && kind == WeaponKind::MeleeSwing {
+                let Some((player, transform)) = players.single().ok() else {
+                    continue;
+                };
+                let used: Vec<_> = weapon_slots.iter().copied().collect();
+                let Some(slot) = (0..MAX_WEAPON_SLOTS as u8)
+                    .map(WeaponSlot)
+                    .find(|candidate| !used.contains(candidate))
+                else {
+                    continue;
+                };
+                let mut weapon = template.unwrap_or_else(|| Weapon::new(kind));
+                weapon.cooldown = Timer::from_seconds(
+                    weapon.cooldown.duration().as_secs_f32(),
+                    TimerMode::Repeating,
+                );
+                commands.entity(player).with_child((
+                    weapon,
+                    slot,
+                    Transform::from_translation(transform.translation),
+                ));
             }
         }
         levels.set_level(kind, level + 1);
@@ -346,5 +387,7 @@ fn apply_mod(weapon: &mut Weapon, m: StatMod) {
         StatMod::ProjectileSpeed(x) => weapon.projectile_speed *= x,
         StatMod::OrbitSpeed(x) => weapon.orbit_speed *= x,
         StatMod::OrbitRadius(x) => weapon.orbit_radius *= x,
+        StatMod::AdditionalWeapon => {}
+        StatMod::AdditionalOrb => weapon.orb_count = weapon.orb_count.saturating_add(1),
     }
 }

@@ -261,7 +261,7 @@ fn base_stats_copy(weapon: &Weapon) -> String {
             weapon.knockback_impulse()
         ),
         WeaponKind::OrbitingOrb => format!(
-            "伤害 {:.0} · 环绕半径 {:.0} · 环绕速度 {:.1} · 击退 {:.0}",
+            "伤害 {:.0} · 最大半径 {:.0} · 环绕速度 {:.1} · 击退 {:.0}",
             weapon.damage,
             weapon.orbit_radius,
             weapon.orbit_speed,

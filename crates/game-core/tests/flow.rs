@@ -381,6 +381,13 @@ fn orbiting_orb_rehit_cooldown_is_time_based() {
         .query::<&mut Weapon>()
         .iter_mut(app.world_mut())
     {
+        weapon.knockback_mult = 0.0;
+    }
+    for mut weapon in app
+        .world_mut()
+        .query::<&mut Weapon>()
+        .iter_mut(app.world_mut())
+    {
         weapon.orbit_speed = 0.0;
     }
     app.world_mut().spawn((
@@ -393,7 +400,7 @@ fn orbiting_orb_rehit_cooldown_is_time_based() {
         Transform::from_xyz(70.0, 0.0, 0.0),
     ));
 
-    for _ in 0..10 {
+    for _ in 0..60 {
         step(&mut app);
         if app.world().resource::<DamageStats>().run.total() > 0.0 {
             break;
@@ -483,6 +490,13 @@ fn defeat_returns_to_menu_and_resets_the_run() {
     let mut app = headless(7, 20, false);
     app.update();
     start_run_with_weapon(&mut app, WeaponKind::OrbitingOrb);
+    for mut weapon in app
+        .world_mut()
+        .query::<&mut Weapon>()
+        .iter_mut(app.world_mut())
+    {
+        weapon.knockback_mult = 0.0;
+    }
 
     let target = app
         .world_mut()
@@ -1057,7 +1071,7 @@ fn piercing_projectile_hits_each_enemy_once() {
 }
 
 #[test]
-fn melee_swing_hits_every_enemy_in_radius_once() {
+fn melee_swing_hits_only_enemies_in_120_degree_fan() {
     let mut app = headless(42, 5, false);
     // Isolate from wave spawns so hit counts come only from the swing.
     app.insert_resource(WaveConfig {
@@ -1067,9 +1081,9 @@ fn melee_swing_hits_every_enemy_in_radius_once() {
     app.update();
     start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
 
-    // Three tanky enemies inside the swing ring (radius 90 + body 22) but
-    // outside contact range (42), so only the swing can touch them.
-    for (x, y) in [(70.0, 0.0), (0.0, 70.0), (-70.0, 0.0)] {
+    // Three tanky enemies inside the 120-degree fan (radius 105 + body 22)
+    // but outside contact range (42), so only the swing can touch them.
+    for (x, y) in [(70.0, 0.0), (60.0, 30.0), (60.0, -30.0)] {
         app.world_mut().spawn((
             Enemy {
                 kind: EnemyKind::MeleeRusher,
@@ -1080,6 +1094,15 @@ fn melee_swing_hits_every_enemy_in_radius_once() {
             Transform::from_xyz(x, y, 0.0),
         ));
     }
+    app.world_mut().spawn((
+        Enemy {
+            kind: EnemyKind::MeleeRusher,
+            speed: 0.0,
+            health: 100.0,
+            split_depth: 0,
+        },
+        Transform::from_xyz(0.0, 70.0, 0.0),
+    ));
 
     // First swing fires at ~0.9 s; break before the second (~1.8 s).
     let mut steps = 0;
@@ -1096,10 +1119,72 @@ fn melee_swing_hits_every_enemy_in_radius_once() {
     assert!(rec.deaths.is_empty(), "no enemy died to the first swing");
     let mut enemies = app.world_mut().query::<&Enemy>();
     let healths: Vec<f32> = enemies.iter(app.world()).map(|e| e.health).collect();
-    assert_eq!(healths.len(), 3);
-    for health in healths {
-        assert_eq!(health, 60.0, "exactly one 40-damage hit per enemy");
+    assert_eq!(healths, vec![60.0, 60.0, 60.0, 100.0]);
+}
+
+#[test]
+fn melee_upgrade_adds_independent_weapon_slot_with_shared_stats() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
+    set_next_state(&mut app, GameState::UpgradeChoice);
+    step(&mut app);
+
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 1);
+    step(&mut app);
+    step(&mut app);
+
+    let mut weapons = app.world_mut().query::<(&Weapon, &WeaponSlot)>();
+    let slots: Vec<_> = weapons
+        .iter(app.world())
+        .filter(|(weapon, _)| weapon.kind == WeaponKind::MeleeSwing)
+        .map(|(_, slot)| *slot)
+        .collect();
+    assert_eq!(slots, vec![WeaponSlot(0), WeaponSlot(1)]);
+    let mut weapons = app.world_mut().query_filtered::<&Weapon, Without<Player>>();
+    let damages: Vec<_> = weapons
+        .iter(app.world())
+        .filter(|weapon| weapon.kind == WeaponKind::MeleeSwing)
+        .map(|weapon| weapon.damage)
+        .collect();
+    assert_eq!(damages, vec![40.0, 40.0]);
+}
+
+#[test]
+fn orbiting_orbs_pulse_and_distribute_added_orbs() {
+    let mut app = headless(42, 5, false);
+    app.insert_resource(WaveConfig {
+        max_waves: 5,
+        spawning: false,
+    });
+    app.update();
+    start_run_with_weapon(&mut app, WeaponKind::OrbitingOrb);
+    for mut weapon in app
+        .world_mut()
+        .query::<&mut Weapon>()
+        .iter_mut(app.world_mut())
+    {
+        weapon.orbit_speed = 0.0;
+        weapon.orb_count = 3;
     }
+    step(&mut app);
+
+    let mut orbs = app.world_mut().query::<&OrbitOrb>();
+    let phases: Vec<_> = orbs.iter(app.world()).map(|orb| orb.radial_phase).collect();
+    assert_eq!(phases.len(), 3);
+    assert!((phases[1] - phases[0] - 1.0 / 3.0).abs() < 0.03);
+    assert!((phases[2] - phases[1] - 1.0 / 3.0).abs() < 0.03);
+
+    let before = orbs.iter(app.world()).next().unwrap().radius;
+    for _ in 0..30 {
+        step(&mut app);
+    }
+    let after = orbs.iter(app.world()).next().unwrap().radius;
+    assert_ne!(before, after, "orb radius should pulse over time");
 }
 
 /// Count the live `MeleeHit` entities this frame (spawns are visible for the

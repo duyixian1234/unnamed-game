@@ -14,7 +14,7 @@ use game_core::economy::Material;
 use game_core::enemy::Enemy;
 use game_core::player::Player;
 use game_core::weapon::{
-    BomberExplosion, MeleeHit, OrbitOrb, Projectile, Whirlwind, ORB_HIT_RADIUS,
+    BomberExplosion, MeleeHit, OrbRespawn, OrbitOrb, Projectile, Whirlwind, ORB_HIT_RADIUS,
 };
 
 use super::assets::{atlas_index, atlas_sprite, SpriteAssets, ATLAS_CELL};
@@ -31,7 +31,10 @@ impl Plugin for RenderPlugin {
                 attach_material_sprite,
                 attach_projectile_sprite,
                 attach_melee_sprite,
+                animate_melee_swings,
+                animate_melee_trails,
                 attach_orb_sprite,
+                hide_orb_respawns,
                 attach_whirlwind_visual,
                 animate_whirlwinds,
                 attach_bomber_explosion_visual,
@@ -106,24 +109,120 @@ fn attach_projectile_sprite(
     }
 }
 
-/// The melee swing renders as the atlas ring (cell 5), scaled to the hitbox:
-/// the ring sits at ~84% of the swing radius inside the 128px cell (ring
-/// geometry generated in tools/gen_sprites.sh), so the drawn ring lands just
-/// inside the actual hit radius. Tinted translucent so the 0.15 s flash reads
-/// as a quick pulse, not a wall.
 #[allow(clippy::type_complexity)] // Added<T> + Without<Sprite> disambiguation filters
 fn attach_melee_sprite(
     mut commands: Commands,
-    sprite_assets: Res<SpriteAssets>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     mut melee_hits: Query<(Entity, &MeleeHit, &mut Transform), (Added<MeleeHit>, Without<Sprite>)>,
 ) {
     for (entity, melee, mut transform) in &mut melee_hits {
-        transform.scale = Vec3::splat(melee.radius * 2.0 / ATLAS_CELL as f32);
-        commands.entity(entity).insert(Sprite {
-            color: Color::srgba(1.0, 1.0, 1.0, 0.6),
-            ..atlas_sprite(&sprite_assets, atlas_index::MELEE_SWING)
-        });
+        transform.rotation = Quat::from_rotation_z(melee.direction.y.atan2(melee.direction.x));
+        let mesh = meshes.add(melee_blade_mesh(melee.radius));
+        let material = materials.add(ColorMaterial::from(Color::srgba(1.0, 0.82, 0.28, 0.9)));
+        commands
+            .entity(entity)
+            .insert((Mesh2d(mesh), MeshMaterial2d(material)));
+        commands.spawn((
+            MeleeTrail { owner: entity },
+            Mesh2d(meshes.add(melee_trail_mesh(melee.radius, melee.half_angle))),
+            MeshMaterial2d(materials.add(ColorMaterial::from(Color::srgba(1.0, 0.72, 0.18, 0.32)))),
+            Transform::from_translation(transform.translation).with_rotation(
+                Quat::from_rotation_z(melee.direction.y.atan2(melee.direction.x)),
+            ),
+        ));
     }
+}
+
+#[derive(Component)]
+struct MeleeTrail {
+    owner: Entity,
+}
+
+fn animate_melee_swings(
+    mut swings: Query<(&MeleeHit, &mut Transform, &MeshMaterial2d<ColorMaterial>)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for (melee, mut transform, material) in &mut swings {
+        let duration = melee.lifetime.duration().as_secs_f32();
+        let progress = if duration > 0.0 {
+            (melee.lifetime.elapsed_secs() / duration).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let eased = progress * progress * (3.0 - 2.0 * progress);
+        let base_angle = melee.direction.y.atan2(melee.direction.x);
+        let sweep = (eased - 0.5) * melee.half_angle * 1.5;
+        transform.rotation = Quat::from_rotation_z(base_angle + sweep);
+        transform.scale = Vec3::splat(0.75 + 0.25 * (1.0 - progress));
+        if let Some(material) = materials.get_mut(&material.0) {
+            material.color = Color::srgba(1.0, 0.82, 0.28, 0.9 * (1.0 - progress * 0.35));
+        }
+    }
+}
+
+fn animate_melee_trails(
+    mut commands: Commands,
+    melee_hits: Query<&MeleeHit>,
+    mut trails: Query<(Entity, &MeleeTrail, &MeshMaterial2d<ColorMaterial>)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for (entity, trail, material) in &mut trails {
+        let Ok(melee) = melee_hits.get(trail.owner) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        let duration = melee.lifetime.duration().as_secs_f32();
+        let progress = if duration > 0.0 {
+            (melee.lifetime.elapsed_secs() / duration).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        if let Some(material) = materials.get_mut(&material.0) {
+            material.color = Color::srgba(1.0, 0.72, 0.18, 0.32 * (1.0 - progress));
+        }
+    }
+}
+
+/// A tapered blade extending from the player. The blade sweeps across the
+/// attack arc instead of drawing a circular hitbox.
+fn melee_blade_mesh(radius: f32) -> Mesh {
+    let width = (radius * 0.08).max(4.0);
+    mesh_from_positions(vec![
+        [0.0, -width * 0.35, 0.0],
+        [radius * 0.28, -width, 0.0],
+        [radius, -width * 0.42, 0.0],
+        [0.0, -width * 0.35, 0.0],
+        [radius, -width * 0.42, 0.0],
+        [radius, width * 0.42, 0.0],
+        [0.0, -width * 0.35, 0.0],
+        [radius, width * 0.42, 0.0],
+        [radius * 0.28, width, 0.0],
+        [0.0, -width * 0.35, 0.0],
+        [radius * 0.28, width, 0.0],
+        [0.0, width * 0.35, 0.0],
+    ])
+}
+
+fn melee_trail_mesh(radius: f32, half_angle: f32) -> Mesh {
+    let segments = 16;
+    let inner_radius = radius * 0.72;
+    let outer_radius = radius * 0.98;
+    let mut positions = Vec::with_capacity(segments * 6);
+    let point = |distance: f32, angle: f32| [distance * angle.cos(), distance * angle.sin(), 0.0];
+    for segment in 0..segments {
+        let start = -half_angle + 2.0 * half_angle * segment as f32 / segments as f32;
+        let end = -half_angle + 2.0 * half_angle * (segment + 1) as f32 / segments as f32;
+        positions.extend([
+            point(inner_radius, start),
+            point(outer_radius, start),
+            point(outer_radius, end),
+            point(inner_radius, start),
+            point(outer_radius, end),
+            point(inner_radius, end),
+        ]);
+    }
+    mesh_from_positions(positions)
 }
 
 #[allow(clippy::type_complexity)] // Added<T> + Without<Sprite> disambiguation filters
@@ -139,6 +238,12 @@ fn attach_orb_sprite(
         commands
             .entity(entity)
             .insert(atlas_sprite(&sprite_assets, atlas_index::ORB));
+    }
+}
+
+fn hide_orb_respawns(mut respawns: Query<&mut Transform, Added<OrbRespawn>>) {
+    for mut transform in &mut respawns {
+        transform.translation.z = -1.0;
     }
 }
 

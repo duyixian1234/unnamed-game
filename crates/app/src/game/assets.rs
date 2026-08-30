@@ -23,7 +23,6 @@ pub mod atlas_index {
     pub const SPEED_BURSTER: usize = 2;
     pub const SPLITTER: usize = 3;
     pub const MATERIAL: usize = 4;
-    pub const MELEE_SWING: usize = 5;
     pub const PROJECTILE: usize = 6;
     pub const ORB: usize = 7;
     pub const ICON_PIERCE: usize = 8;

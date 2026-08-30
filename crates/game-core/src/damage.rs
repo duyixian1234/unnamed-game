@@ -105,12 +105,17 @@ impl DamageStats {
 pub(crate) fn begin_wave(
     mut stats: ResMut<DamageStats>,
     starting_weapon: Res<crate::weapon::StartingWeapon>,
+    weapons: Query<(&WeaponSlot, &crate::weapon::Weapon)>,
 ) {
     stats.current_wave = DamagePeriod::default();
     stats.current_wave_completed = false;
     if let Some(kind) = starting_weapon.selected {
         stats.current_wave.register_weapon(WeaponSlot(0), kind);
         stats.run.register_weapon(WeaponSlot(0), kind);
+    }
+    for (slot, weapon) in &weapons {
+        stats.current_wave.register_weapon(*slot, weapon.kind);
+        stats.run.register_weapon(*slot, weapon.kind);
     }
 }
 

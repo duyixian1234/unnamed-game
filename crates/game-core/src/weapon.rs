@@ -91,8 +91,8 @@ pub struct Weapon {
     pub orbit_speed: f32,
     /// Orbit radius around the player; used when kind == OrbitingOrb.
     pub orbit_radius: f32,
-    /// Active only after an evolved orb explodes.
-    pub orb_respawn: Option<Timer>,
+    /// Number of independent orbs produced by this weapon slot.
+    pub orb_count: u8,
 }
 
 impl Weapon {
@@ -115,13 +115,30 @@ impl Weapon {
             knockback_mult: 1.0,
             orbit_speed,
             orbit_radius,
-            orb_respawn: None,
+            orb_count: 1,
         }
     }
 
     /// Final knockback impulse for this weapon's hits.
     pub fn knockback_impulse(&self) -> f32 {
         self.kind.knockback() * self.knockback_mult
+    }
+
+    pub(crate) fn clone_for_new_slot(&self) -> Self {
+        Self {
+            kind: self.kind,
+            cooldown: Timer::from_seconds(
+                self.cooldown.duration().as_secs_f32(),
+                TimerMode::Repeating,
+            ),
+            damage: self.damage,
+            projectile_speed: self.projectile_speed,
+            range: self.range,
+            knockback_mult: self.knockback_mult,
+            orbit_speed: self.orbit_speed,
+            orbit_radius: self.orbit_radius,
+            orb_count: self.orb_count,
+        }
     }
 
     pub(crate) fn threat_radius(&self, ranged_default: f32) -> f32 {
@@ -136,7 +153,9 @@ impl Weapon {
         match self.kind {
             WeaponKind::PiercingProjectile => None,
             WeaponKind::MeleeSwing => Some(self.range * 0.8),
-            WeaponKind::OrbitingOrb => Some(self.orbit_radius),
+            // Orbs are passive area coverage; chasing enemies to the maximum
+            // pulse radius leaves the player exposed while the orb returns.
+            WeaponKind::OrbitingOrb => None,
         }
     }
 }
@@ -179,6 +198,7 @@ pub struct BomberExplosion {
 /// the melee swing's discrete rhythm entirely.
 #[derive(Component)]
 pub struct Whirlwind {
+    pub slot: WeaponSlot,
     pub source: DamageSource,
     pub damage: f32,
     pub knockback: f32,
@@ -198,6 +218,8 @@ const WHIRLWIND_KNOCKBACK_BONUS: f32 = 1.25;
 pub const BOMBER_AOE_RADIUS: f32 = 90.0;
 /// Seconds before an orb may damage the same enemy again.
 pub const ORB_REHIT: f32 = 0.25;
+/// Full period of the orbiting orb's 0 -> max -> 0 radius pulse.
+pub const ORB_RADIUS_CYCLE: f32 = 1.2;
 /// Seconds before an exploded Bomber Orb returns.
 pub const BOMBER_RESPAWN: f32 = 0.6;
 /// Bomber Orb AOE damage multiplier.
@@ -210,6 +232,8 @@ const SHARD_DAMAGE_FRACTION: f32 = 0.5;
 const SHARD_LIFETIME: f32 = 0.35;
 /// Half-angle of the 3-shard fan (radians).
 const SHARD_FAN_ANGLE: f32 = 0.35;
+/// Base melee swing arc: a 120-degree fan.
+pub const MELEE_FAN_HALF_ANGLE: f32 = std::f32::consts::PI / 3.0;
 
 /// A melee swing hitbox spawned briefly at the player; damages enemies it
 /// overlaps. Lives long enough for combat resolution to run before it expires.
@@ -221,6 +245,9 @@ pub struct MeleeHit {
     pub knockback: f32,
     /// Radius of the swing around the player.
     pub radius: f32,
+    /// Center direction and half-angle of the melee fan.
+    pub direction: Vec2,
+    pub half_angle: f32,
     pub hit_enemies: Vec<Entity>,
     /// How long the swing stays active; combat must resolve within this window.
     pub lifetime: Timer,
@@ -239,10 +266,35 @@ pub struct OrbitOrb {
     pub angular_speed: f32,
     /// Orbit radius around the player.
     pub radius: f32,
+    /// Maximum radius used by the pulse envelope.
+    pub max_radius: f32,
+    /// Radial pulse phase in the 1.2 second cycle.
+    pub radial_phase: f32,
+    /// Weapon slot that owns this independent orb.
+    pub slot: WeaponSlot,
+    /// Stable ordinal within its owning weapon's orb set.
+    pub index: u8,
     /// Enemies hit this frame; Bomber Orb uses this to detect contact.
     pub hit_enemies: Vec<Entity>,
     /// Per-enemy cooldowns make contact damage independent of frame rate.
     pub hit_cooldowns: Vec<(Entity, Timer)>,
+}
+
+/// A Bomber Orb waiting to respawn. This state is per entity, so one orb
+/// exploding never pauses or respawns its siblings.
+#[derive(Component, Clone)]
+pub struct OrbRespawn {
+    pub source: DamageSource,
+    pub damage: f32,
+    pub knockback: f32,
+    pub angular_speed: f32,
+    pub max_radius: f32,
+    pub angle: f32,
+    pub radial_phase: f32,
+    pub slot: WeaponSlot,
+    pub index: u8,
+    pub bomber: bool,
+    pub timer: Timer,
 }
 
 /// Marker added to the player once its weapon loadout has been spawned, so we
@@ -398,6 +450,13 @@ fn auto_attack(
                 // Gate on reach (the same formula as the hit test via
                 // combat::circle_hits_enemy), so the swing only fires — and
                 // its visual only flashes — when it can actually connect.
+                let Some(target) = nearest_enemy(player_pos, &enemies) else {
+                    continue;
+                };
+                let direction = (target - player_pos).normalize_or_zero();
+                if direction == Vec2::ZERO {
+                    continue;
+                }
                 let in_reach = enemies.iter().any(|(transform, enemy)| {
                     circle_hits_enemy(
                         player_pos,
@@ -416,6 +475,8 @@ fn auto_attack(
                         damage: weapon.damage * stats.damage_mult,
                         knockback: weapon.knockback_impulse(),
                         radius,
+                        direction,
+                        half_angle: MELEE_FAN_HALF_ANGLE,
                         hit_enemies: Vec::new(),
                         lifetime: Timer::from_seconds(0.15, TimerMode::Once),
                     },
@@ -482,28 +543,23 @@ fn update_orbs(
     mut commands: Commands,
     time: Res<Time>,
     players: Query<(&Transform, &PlayerStats), With<Player>>,
-    mut weapons: Query<
-        (&mut Weapon, &WeaponSlot, Option<&Evolved>),
-        (Without<Player>, Without<OrbitOrb>),
-    >,
+    weapons: Query<(&Weapon, &WeaponSlot, Option<&Evolved>), Without<Player>>,
     mut orbs: Query<(Entity, &mut OrbitOrb, &mut Transform), (Without<Player>, Without<Weapon>)>,
+    mut respawns: Query<
+        (Entity, &mut OrbRespawn),
+        (Without<Player>, Without<Weapon>, Without<OrbitOrb>),
+    >,
 ) {
     let Ok((player_transform, stats)) = players.single() else {
         return;
     };
     let player_pos = player_transform.translation;
 
-    // Gather the orbiting weapon's current spec (single slot of this kind).
-    let mut orb_spec = None;
-    for (mut weapon, slot, evolved) in &mut weapons {
+    let mut specs = Vec::new();
+    for (weapon, slot, evolved) in &weapons {
         if weapon.kind == WeaponKind::OrbitingOrb {
-            if let Some(timer) = &mut weapon.orb_respawn {
-                timer.tick(time.delta());
-                if timer.is_finished() {
-                    weapon.orb_respawn = None;
-                }
-            }
-            orb_spec = Some((
+            specs.push((
+                *slot,
                 weapon.damage * stats.damage_mult,
                 weapon.knockback_impulse(),
                 weapon.orbit_speed,
@@ -513,21 +569,76 @@ fn update_orbs(
                     kind: weapon.kind,
                 },
                 evolved.is_some(),
-                weapon.orb_respawn.is_none(),
+                weapon.orb_count.max(1),
             ));
         }
     }
 
+    // Respawn timers are attached to the individual orb entity.
+    for (_, mut respawn) in &mut respawns {
+        respawn.timer.tick(time.delta());
+    }
+    let finished: Vec<_> = respawns
+        .iter()
+        .filter(|(_, respawn)| respawn.timer.is_finished())
+        .map(|(entity, respawn)| (entity, respawn.clone()))
+        .collect();
+    for (entity, respawn) in finished {
+        if !respawn.timer.is_finished() {
+            continue;
+        }
+        let orb = OrbitOrb {
+            source: respawn.source,
+            damage: respawn.damage,
+            knockback: respawn.knockback,
+            angle: respawn.angle,
+            angular_speed: respawn.angular_speed,
+            radius: pulse_radius(respawn.max_radius, respawn.radial_phase),
+            max_radius: respawn.max_radius,
+            radial_phase: respawn.radial_phase,
+            slot: respawn.slot,
+            index: respawn.index,
+            hit_enemies: Vec::new(),
+            hit_cooldowns: Vec::new(),
+        };
+        let mut entity_commands = commands.entity(entity);
+        entity_commands.remove::<OrbRespawn>();
+        entity_commands.insert((orb, Transform::from_translation(player_pos)));
+        if respawn.bomber {
+            entity_commands.insert(BomberOrb);
+        }
+    }
+
     // Rotate existing orbs around the player and re-sync upgradeable stats.
+    let total: u32 = specs
+        .iter()
+        .map(|(_, _, _, _, _, _, _, count)| *count as u32)
+        .sum();
+    let rephase = respawns.iter().next().is_none() && orbs.iter().count() as u32 != total;
     for (_, mut orb, mut transform) in &mut orbs {
-        if let Some((damage, knockback, angular_speed, radius, source, _, _)) = orb_spec {
-            orb.damage = damage;
-            orb.knockback = knockback;
-            orb.angular_speed = angular_speed;
-            orb.radius = radius;
-            orb.source = source;
+        if rephase {
+            let ordinal = specs
+                .iter()
+                .take_while(|(slot, ..)| *slot != orb.slot)
+                .map(|(_, _, _, _, _, _, _, count)| *count as u32)
+                .sum::<u32>()
+                + orb.index as u32;
+            let angular_phase = ordinal as f32 / total.max(1) as f32;
+            orb.angle = std::f32::consts::TAU * angular_phase;
+            orb.radial_phase = ordinal as f32 / total.max(1) as f32;
+        }
+        if let Some((_, damage, knockback, angular_speed, max_radius, source, _, _)) =
+            specs.iter().find(|(slot, ..)| *slot == orb.slot)
+        {
+            orb.damage = *damage;
+            orb.knockback = *knockback;
+            orb.angular_speed = *angular_speed;
+            orb.max_radius = *max_radius;
+            orb.source = *source;
         }
         orb.angle += orb.angular_speed * time.delta_secs();
+        orb.radial_phase = (orb.radial_phase + time.delta_secs() / ORB_RADIUS_CYCLE).fract();
+        orb.radius = pulse_radius(orb.max_radius, orb.radial_phase);
         let offset = Vec2::from_angle(orb.angle) * orb.radius;
         transform.translation = player_pos.truncate().extend(0.0) + offset.extend(0.0);
         for (_, timer) in &mut orb.hit_cooldowns {
@@ -539,18 +650,34 @@ fn update_orbs(
         orb.hit_enemies.clear();
     }
 
-    // Ensure the OrbitingOrb weapon has an active orb; spawn if missing.
-    let existing = orbs.iter().count() as i32;
-    if let Some((damage, knockback, angular_speed, radius, source, evolved, can_spawn)) = orb_spec {
-        if existing == 0 && can_spawn {
+    // Ensure each weapon has its requested number of independent orbs.
+    let mut ordinal = 0u32;
+    for (slot, damage, knockback, angular_speed, max_radius, source, evolved, count) in specs {
+        for index in 0..count {
+            let exists = orbs
+                .iter()
+                .any(|(_, orb, _)| orb.slot == slot && orb.index == index);
+            let pending = respawns
+                .iter()
+                .any(|(_, respawn)| respawn.slot == slot && respawn.index == index);
+            if exists || pending {
+                ordinal += 1;
+                continue;
+            }
+            let angular_phase = ordinal as f32 / total.max(1) as f32;
+            let radial_phase = ordinal as f32 / total.max(1) as f32;
             let mut orb = commands.spawn((
                 OrbitOrb {
                     source,
                     damage,
                     knockback,
-                    angle: 0.0,
+                    angle: std::f32::consts::TAU * angular_phase,
                     angular_speed,
-                    radius,
+                    radius: pulse_radius(max_radius, radial_phase),
+                    max_radius,
+                    radial_phase,
+                    slot,
+                    index,
                     hit_enemies: Vec::new(),
                     hit_cooldowns: Vec::new(),
                 },
@@ -559,8 +686,20 @@ fn update_orbs(
             if evolved {
                 orb.insert(BomberOrb);
             }
+            ordinal += 1;
         }
     }
+}
+
+fn pulse_radius(max_radius: f32, phase: f32) -> f32 {
+    let phase = phase.fract();
+    let progress = if phase <= 0.5 {
+        phase * 2.0
+    } else {
+        (1.0 - phase) * 2.0
+    };
+    let envelope = progress * progress * (3.0 - 2.0 * progress);
+    max_radius * envelope
 }
 
 /// Whirlwind evolution: keep one persistent blade per evolved MeleeSwing,
@@ -577,9 +716,12 @@ fn update_whirlwind(
     };
     let player_pos = player_transform.translation;
 
-    let spec = melee.iter().find_map(|(weapon, slot, evolved)| {
-        (weapon.kind == WeaponKind::MeleeSwing && evolved.is_some()).then(|| {
+    let specs: Vec<_> = melee
+        .iter()
+        .filter(|(weapon, _, evolved)| weapon.kind == WeaponKind::MeleeSwing && evolved.is_some())
+        .map(|(weapon, slot, _)| {
             (
+                *slot,
                 DamageSource::Weapon {
                     slot: *slot,
                     kind: weapon.kind,
@@ -589,20 +731,32 @@ fn update_whirlwind(
                 weapon.range,
             )
         })
-    });
-    let Some((source, damage, knockback, radius)) = spec else {
+        .collect();
+    if specs.is_empty() {
         return;
-    };
-
-    if let Ok((_, mut whirlwind, mut transform)) = whirlwinds.single_mut() {
-        whirlwind.damage = damage;
-        whirlwind.source = source;
-        whirlwind.knockback = knockback;
-        whirlwind.radius = radius;
+    }
+    for (_, mut whirlwind, mut transform) in &mut whirlwinds {
+        let Some((_, source, damage, knockback, radius)) =
+            specs.iter().find(|(slot, ..)| *slot == whirlwind.slot)
+        else {
+            continue;
+        };
+        whirlwind.damage = *damage;
+        whirlwind.source = *source;
+        whirlwind.knockback = *knockback;
+        whirlwind.radius = *radius;
         transform.translation = player_pos;
-    } else {
+    }
+    for (slot, source, damage, knockback, radius) in specs {
+        if whirlwinds
+            .iter()
+            .any(|(_, whirlwind, _)| whirlwind.slot == slot)
+        {
+            continue;
+        }
         commands.spawn((
             Whirlwind {
+                slot,
                 source,
                 damage,
                 knockback,
@@ -711,7 +865,6 @@ fn bomber_orb_explosions(
     mut spawn_writer: MessageWriter<crate::enemy::EnemySpawned>,
     mut hit_writer: MessageWriter<crate::combat::HitSfx>,
     mut damage_stats: ResMut<DamageStats>,
-    mut weapons: Query<(&WeaponSlot, &mut Weapon), Without<OrbitOrb>>,
     orbs: Query<(Entity, &OrbitOrb, &Transform), With<BomberOrb>>,
     mut enemies: Query<
         (Entity, &mut Enemy, &Transform, &mut Knockback),
@@ -761,15 +914,22 @@ fn bomber_orb_explosions(
             },
             Transform::from_translation(orb_transform.translation),
         ));
-        if let DamageSource::Weapon { slot, .. } = orb.source {
-            if let Some((_, mut weapon)) = weapons
-                .iter_mut()
-                .find(|(candidate, _)| **candidate == slot)
-            {
-                weapon.orb_respawn = Some(Timer::from_seconds(BOMBER_RESPAWN, TimerMode::Once));
-            }
-        }
-        commands.entity(orb_entity).despawn();
+        commands
+            .entity(orb_entity)
+            .remove::<OrbitOrb>()
+            .insert(OrbRespawn {
+                source: orb.source,
+                damage: orb.damage,
+                knockback: orb.knockback,
+                angular_speed: orb.angular_speed,
+                max_radius: orb.max_radius,
+                angle: orb.angle,
+                radial_phase: orb.radial_phase,
+                slot: orb.slot,
+                index: orb.index,
+                bomber: true,
+                timer: Timer::from_seconds(BOMBER_RESPAWN, TimerMode::Once),
+            });
     }
 }
 

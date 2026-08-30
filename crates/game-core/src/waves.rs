@@ -10,7 +10,7 @@ use crate::economy::Material;
 use crate::enemy::{Enemy, EnemyKind, EnemySpawned};
 use crate::player::{Health, Player};
 use crate::rng::{GlobalRng, RandomDraw};
-use crate::weapon::{BomberExplosion, MeleeHit, OrbitOrb, Projectile, Whirlwind};
+use crate::weapon::{BomberExplosion, MeleeHit, OrbRespawn, OrbitOrb, Projectile, Whirlwind};
 use crate::{GameState, RunStarted};
 
 /// Half-extents of the play field; enemies spawn just outside these edges.
@@ -121,6 +121,7 @@ fn clear_combat_entities(
     melee: Query<Entity, With<MeleeHit>>,
     whirlwinds: Query<Entity, With<Whirlwind>>,
     explosions: Query<Entity, With<BomberExplosion>>,
+    respawns: Query<Entity, With<OrbRespawn>>,
     materials: Query<Entity, With<Material>>,
 ) {
     for entity in enemies
@@ -130,6 +131,7 @@ fn clear_combat_entities(
         .chain(melee.iter())
         .chain(whirlwinds.iter())
         .chain(explosions.iter())
+        .chain(respawns.iter())
         .chain(materials.iter())
     {
         commands.entity(entity).despawn();
