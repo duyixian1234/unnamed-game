@@ -552,6 +552,21 @@ fn expire_melee_hits(
     }
 }
 
+/// One OrbitingOrb weapon slot's orb stats, mirrored from the `Weapon` each
+/// frame into its live orbs (and used to spawn missing ones).
+#[derive(Clone, Copy)]
+struct OrbSpec {
+    slot: WeaponSlot,
+    damage: f32,
+    knockback: f32,
+    angular_speed: f32,
+    max_radius: f32,
+    source: DamageSource,
+    evolved: bool,
+    size: f32,
+    count: u8,
+}
+
 /// Spawn and orbit orbs around the player, one per OrbitingOrb weapon slot.
 /// Orb stats live on the weapon (upgradeable) and are re-synced every frame;
 /// an evolved weapon spawns Bomber Orb variants.
@@ -572,23 +587,23 @@ fn update_orbs(
     };
     let player_pos = player_transform.translation;
 
-    let mut specs = Vec::new();
+    let mut specs: Vec<OrbSpec> = Vec::new();
     for (weapon, slot, evolved) in &weapons {
         if weapon.kind == WeaponKind::OrbitingOrb {
-            specs.push((
-                *slot,
-                weapon.damage * stats.damage_mult,
-                weapon.knockback_impulse(),
-                weapon.orbit_speed,
-                weapon.orbit_radius,
-                DamageSource::Weapon {
+            specs.push(OrbSpec {
+                slot: *slot,
+                damage: weapon.damage * stats.damage_mult,
+                knockback: weapon.knockback_impulse(),
+                angular_speed: weapon.orbit_speed,
+                max_radius: weapon.orbit_radius,
+                source: DamageSource::Weapon {
                     slot: *slot,
                     kind: weapon.kind,
                 },
-                evolved.is_some(),
-                weapon.orb_size,
-                weapon.orb_count.max(1),
-            ));
+                evolved: evolved.is_some(),
+                size: weapon.orb_size,
+                count: weapon.orb_count.max(1),
+            });
         }
     }
 
@@ -631,14 +646,14 @@ fn update_orbs(
     }
 
     // Rotate existing orbs around the player and re-sync upgradeable stats.
-    let total: u32 = specs.iter().map(|(.., count)| *count as u32).sum();
+    let total: u32 = specs.iter().map(|spec| spec.count as u32).sum();
     let rephase = respawns.iter().next().is_none() && orbs.iter().count() as u32 != total;
     for (_, mut orb, mut transform) in &mut orbs {
         if rephase {
             let ordinal = specs
                 .iter()
-                .take_while(|(slot, ..)| *slot != orb.slot)
-                .map(|(.., count)| *count as u32)
+                .take_while(|spec| spec.slot != orb.slot)
+                .map(|spec| spec.count as u32)
                 .sum::<u32>()
                 + orb.index as u32;
             let angular_phase = ordinal as f32 / total.max(1) as f32;
@@ -647,15 +662,13 @@ fn update_orbs(
             orb.ordinal = ordinal as u8;
             orb.spin = spin_sign(ordinal);
         }
-        if let Some((_, damage, knockback, angular_speed, max_radius, source, _, size, _)) =
-            specs.iter().find(|(slot, ..)| *slot == orb.slot)
-        {
-            orb.damage = *damage;
-            orb.knockback = *knockback;
-            orb.angular_speed = *angular_speed;
-            orb.max_radius = *max_radius;
-            orb.source = *source;
-            orb.size = *size;
+        if let Some(spec) = specs.iter().find(|spec| spec.slot == orb.slot) {
+            orb.damage = spec.damage;
+            orb.knockback = spec.knockback;
+            orb.angular_speed = spec.angular_speed;
+            orb.max_radius = spec.max_radius;
+            orb.source = spec.source;
+            orb.size = spec.size;
         }
         orb.angle += orb.spin * orb.angular_speed * time.delta_secs();
         orb.radial_phase = (orb.radial_phase + time.delta_secs() / ORB_RADIUS_CYCLE).fract();
@@ -673,15 +686,14 @@ fn update_orbs(
 
     // Ensure each weapon has its requested number of independent orbs.
     let mut ordinal = 0u32;
-    for (slot, damage, knockback, angular_speed, max_radius, source, evolved, size, count) in specs
-    {
-        for index in 0..count {
+    for spec in specs {
+        for index in 0..spec.count {
             let exists = orbs
                 .iter()
-                .any(|(_, orb, _)| orb.slot == slot && orb.index == index);
+                .any(|(_, orb, _)| orb.slot == spec.slot && orb.index == index);
             let pending = respawns
                 .iter()
-                .any(|(_, respawn)| respawn.slot == slot && respawn.index == index);
+                .any(|(_, respawn)| respawn.slot == spec.slot && respawn.index == index);
             if exists || pending {
                 ordinal += 1;
                 continue;
@@ -690,25 +702,25 @@ fn update_orbs(
             let radial_phase = ordinal as f32 / total.max(1) as f32;
             let mut orb = commands.spawn((
                 OrbitOrb {
-                    source,
-                    damage,
-                    knockback,
+                    source: spec.source,
+                    damage: spec.damage,
+                    knockback: spec.knockback,
                     angle: std::f32::consts::TAU * angular_phase,
-                    angular_speed,
-                    radius: pulse_radius(max_radius, radial_phase),
-                    max_radius,
+                    angular_speed: spec.angular_speed,
+                    radius: pulse_radius(spec.max_radius, radial_phase),
+                    max_radius: spec.max_radius,
                     radial_phase,
-                    slot,
+                    slot: spec.slot,
                     index,
                     ordinal: ordinal as u8,
                     spin: spin_sign(ordinal),
-                    size,
+                    size: spec.size,
                     hit_enemies: Vec::new(),
                     hit_cooldowns: Vec::new(),
                 },
                 Transform::from_translation(player_pos),
             ));
-            if evolved {
+            if spec.evolved {
                 orb.insert(BomberOrb);
             }
             ordinal += 1;

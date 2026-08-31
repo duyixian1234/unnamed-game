@@ -88,6 +88,7 @@ fn drop_on_enemy_death(mut commands: Commands, mut deaths: MessageReader<EnemyDi
 
 /// Materials entering the player's attraction radius start flying to them.
 /// The boostable radius lives on `PlayerStats`.
+#[allow(clippy::type_complexity)] // query filter tuple
 fn attract_materials(
     mut commands: Commands,
     players: Query<(&Transform, &PlayerStats), With<Player>>,
@@ -109,6 +110,7 @@ fn attract_materials(
 }
 
 /// An attracted material flies toward the player until collected.
+#[allow(clippy::type_complexity)] // query filter tuple
 fn fly_attracted_materials(
     time: Res<Time>,
     players: Query<&Transform, With<Player>>,
