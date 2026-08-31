@@ -9,6 +9,7 @@ mod game;
 use bevy::prelude::*;
 
 use game_core::rng::Seed;
+use game_core::waves::WaveConfig;
 
 /// Marks the single 2D camera. It stays fixed so the player moves across the
 /// screen (no camera-follow); the field is sized to match the visible area.
@@ -17,6 +18,7 @@ pub struct MainCamera;
 
 fn main() {
     let seed = parse_seed();
+    let max_waves = parse_max_waves();
 
     App::new()
         .add_plugins(DefaultPlugins.set(bevy::asset::AssetPlugin {
@@ -27,9 +29,13 @@ fn main() {
             meta_check: bevy::asset::AssetMetaCheck::Never,
             ..default()
         }))
-        // Must be inserted before CorePlugin: init_rng picks up an existing
-        // Seed instead of generating a random one (ADR-0005).
+        // Must be inserted before CorePlugin: both are picked up from the
+        // world rather than defaulted (ADR-0005 for the seed).
         .insert_resource(Seed(seed))
+        .insert_resource(WaveConfig {
+            max_waves,
+            spawning: true,
+        })
         .add_plugins(game::AppPlugin)
         .add_systems(Startup, (setup, zoom_camera.after(setup)))
         .run();
@@ -51,36 +57,60 @@ fn zoom_camera(mut cameras: Query<&mut Projection, With<MainCamera>>) {
     }
 }
 
+/// Read a `--<name>=value` / `--<name> value` CLI argument, if present.
+fn cli_value(name: &str) -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    let flag = format!("--{name}");
+    for (i, arg) in args.iter().enumerate() {
+        if let Some(rest) = arg.strip_prefix(&format!("{flag}=")) {
+            return Some(rest.to_string());
+        }
+        if arg == &flag {
+            return args.get(i + 1).cloned();
+        }
+    }
+    None
+}
+
+/// The CLI flag, else the environment variable, else nothing.
+fn configured_value(name: &str, env_var: &str) -> Option<String> {
+    cli_value(name).or_else(|| std::env::var(env_var).ok())
+}
+
 /// Parse the run seed: `--seed=N` / `--seed N` CLI arg, else the `GAME_SEED`
 /// env var, else a random value. The effective seed is logged at startup so
 /// a session can be replayed (ADR-0005).
 fn parse_seed() -> u64 {
-    let args: Vec<String> = std::env::args().collect();
-    let mut parsed: Option<u64> = None;
-    for (i, arg) in args.iter().enumerate() {
-        let value: Option<&str> = if let Some(rest) = arg.strip_prefix("--seed=") {
-            Some(rest)
-        } else if arg == "--seed" {
-            args.get(i + 1).map(|s| s.as_str())
-        } else {
-            None
-        };
-        if let Some(value) = value {
-            parsed = value.parse::<u64>().ok();
-            if parsed.is_some() {
-                break;
-            }
+    configured_value("seed", "GAME_SEED")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or_else(|| {
+            web_time::SystemTime::now()
+                .duration_since(web_time::SystemTime::UNIX_EPOCH)
+                .expect("system clock before UNIX_EPOCH")
+                .as_nanos() as u64
+        })
+}
+
+/// Parse the wave count: `--waves=N` / `--waves N` CLI arg, else the
+/// `GAME_WAVES` env var, else `WaveConfig`'s default (CONTEXT.md: wave count
+/// configurable).
+///
+/// Zero and unparseable values fall back to the default rather than starting a
+/// Run that ends immediately. This is a launch-time knob, not a player-facing
+/// setting: the wave count is a gameplay parameter, and CONTEXT.md keeps those
+/// as 配置 in `game-core`, distinct from the player's 设置.
+fn parse_max_waves() -> u32 {
+    let default = WaveConfig::default().max_waves;
+    match configured_value("waves", "GAME_WAVES").map(|value| value.parse::<u32>()) {
+        None => default,
+        Some(Ok(waves)) if waves > 0 => waves,
+        Some(Ok(_)) => {
+            warn!("a wave count of 0 is not a Run, falling back to {default}");
+            default
+        }
+        Some(Err(error)) => {
+            warn!("could not parse the wave count ({error}), falling back to {default}");
+            default
         }
     }
-    if parsed.is_none() {
-        if let Ok(value) = std::env::var("GAME_SEED") {
-            parsed = value.parse::<u64>().ok();
-        }
-    }
-    parsed.unwrap_or_else(|| {
-        web_time::SystemTime::now()
-            .duration_since(web_time::SystemTime::UNIX_EPOCH)
-            .expect("system clock before UNIX_EPOCH")
-            .as_nanos() as u64
-    })
 }

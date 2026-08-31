@@ -13,6 +13,7 @@ use bevy::prelude::*;
 use bevy::state::state::StateTransitionEvent;
 
 use game_core::rng::Seed;
+use game_core::waves::WaveConfig;
 use game_core::{CorePlugin, GameState};
 
 /// App-layer plugins: sprite assets, SFX playback, sprite attachment,
@@ -32,11 +33,17 @@ impl Plugin for AppPlugin {
             ui::UIPlugin,
         ));
 
-        // Log the effective seed so a session can be replayed (ADR-0005).
+        // Log the effective seed so a session can be replayed (ADR-0005), and
+        // the effective wave count so a short run is reproducible too.
         let seed = app.world().resource::<Seed>().0;
         info!(
             "Run seed: {} (replay with --seed {} or GAME_SEED={})",
             seed, seed, seed
+        );
+        let max_waves = app.world().resource::<WaveConfig>().max_waves;
+        info!(
+            "Waves: {} (override with --waves {} or GAME_WAVES={})",
+            max_waves, max_waves, max_waves
         );
 
         // Simulation last, so app systems can order against core systems if
