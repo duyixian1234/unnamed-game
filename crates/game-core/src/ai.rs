@@ -48,7 +48,7 @@ impl Plugin for AiPlugin {
             (
                 ai_menu_navigation.run_if(in_state(GameState::MainMenu)),
                 ai_starting_weapon.run_if(in_state(GameState::StartingWeaponChoice)),
-                ai_combat_movement.run_if(in_state(GameState::InGame)),
+                ai_combat_movement.run_if(crate::sim_running),
                 ai_upgrade.run_if(in_state(GameState::UpgradeChoice)),
                 ai_continue.run_if(in_state(GameState::Shop)),
                 ai_buy.run_if(in_state(GameState::Shop)),

@@ -33,7 +33,7 @@ Current gameplay version: 0.5.0.
 - **诊断叠层 (Diagnostics Overlay)**: an app-layer performance readout — FPS, frame time, worst frame time in the window, Enemy count, and total entity count. Hidden by default, toggled by the backquote key or a Settings option, and present in every GameState. _Avoid_: 帧率显示, 调试面板, HUD — it is not part of the HUD and is not a player-facing element.
 - **设置 (Settings)**: the player's preferences, and a presentation-layer (app) concern only: SFX mute, SFX volume, fullscreen, and the Diagnostics Overlay toggle. Persisted across sessions, except fullscreen, which is session-only because browsers require a user gesture to enter it (ADR 0011). _Avoid_: 配置 / config — gameplay parameters (e.g. wave count) belong to `game-core`, not to Settings.
 - **静音 (Mute)**: a boolean state independent of SFX volume. While muted nothing plays, but the volume value is preserved, so unmuting restores it. _Avoid_: 音量归零 — muting must not destroy the volume value.
-- **暂停 (Pause)**: not implemented. Pause stops the Wave timer and RNG draws, which makes it a simulation concern belonging to `game-core`. _Avoid_: treating Pause as part of Settings — the two sit on opposite sides of the ADR-0004 boundary.
+- **暂停 (Pause)**: freezes the simulation while the HUD, the weapon bar and the field stay on screen — the Wave clock and RNG draws stop, but nothing is hidden. The pause overlay is how 设置 is reached mid-Run. _Avoid_: treating Pause as part of Settings — the two sit on opposite sides of the ADR-0004 boundary.
 
 ## Decisions (see docs/adr/)
 - Use the Bevy engine, pinned to 0.17.
@@ -44,7 +44,7 @@ Current gameplay version: 0.5.0.
 ## Game systems (settled)
 
 - **Art style**: minimal geometric / cartoon — rounded shapes, high-saturation solid colors, thick outline.
-- **Controls**: WASD movement only; weapons auto-aim and auto-fire. No mouse aiming.
+- **Controls**: WASD movement only; weapons auto-aim and auto-fire. ESC pauses; M mutes. No mouse aiming.
 - **Enemy model**: 3 types — melee-rusher, speed-burster, splitter; straight-line pursuit by default.
 - **Combat / weapon model**: 3 weapons — melee swing, piercing projectile, orbiting orb. A Run supports up to 6 Weapon Slots, and upgrades can add independent instances of the selected WeaponKind. Each WeaponKind has an 8-level Upgrade Path ending in a Weapon Evolution (behavior change — see ADR 0008). The selected Weapon's full Upgrade Path (including the Evolution) is visible from the Starting Weapon Choice onward.
 - **Melee behavior**: base melee attacks use a 120-degree fan centered on the nearest enemy and affect all enemies inside it. Separate melee instances swing in distinct colors with staggered attack timing (never on the same frame). The Level-8 Whirlwind evolution merges every melee instance into a single blade occupying one slot, pooling their damage; the merged blade is a 360-degree continuous attack.

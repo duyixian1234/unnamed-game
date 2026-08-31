@@ -58,7 +58,7 @@ impl Plugin for CombatPlugin {
                     contact_damage,
                 )
                     .in_set(CombatSet::ResolveDamage)
-                    .run_if(in_state(GameState::InGame)),
+                    .run_if(crate::sim_running),
             );
     }
 }

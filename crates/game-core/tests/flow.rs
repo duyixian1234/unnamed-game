@@ -32,7 +32,7 @@ use game_core::weapon::{
     BomberOrb, MeleeHit, OrbitOrb, Projectile, StartingWeapon, StartingWeaponSelected, Weapon,
     WeaponKind, Whirlwind,
 };
-use game_core::{CorePlugin, GameState, RunEnded, RunOutcome, RunStarted};
+use game_core::{CorePlugin, GameState, Paused, RunEnded, RunOutcome, RunStarted};
 
 /// Fixed timestep of the test harness.
 const STEP: f32 = 1.0 / 60.0;
@@ -2263,5 +2263,102 @@ fn orb_lv6_bomber_orb_explodes_on_contact_and_respawns() {
     assert!(
         orbs.iter(app.world()).count() >= 1,
         "a BomberOrb returns after the 0.6 second delay"
+    );
+}
+
+/// Seconds left on the wave clock.
+fn wave_remaining(app: &App) -> f32 {
+    app.world().resource::<Wave>().wave_timer.remaining_secs()
+}
+
+#[test]
+fn pausing_freezes_the_wave_clock_and_stops_spawning() {
+    let mut app = headless(7, 20, false);
+    app.update();
+    start_run_with_weapon(&mut app, WeaponKind::PiercingProjectile);
+    assert_eq!(current_state(&app), GameState::InGame);
+    buff_player(&mut app);
+
+    // Control: the clock does advance when running, so the frozen assertions
+    // below cannot pass merely because the harness forgot to tick.
+    let before = wave_remaining(&app);
+    for _ in 0..120 {
+        step(&mut app);
+    }
+    let running = wave_remaining(&app);
+    assert!(
+        running < before - 0.5,
+        "an unpaused wave clock must advance: {before} -> {running}"
+    );
+    let spawns_while_running = app.world().resource::<Recording>().spawns.len();
+    assert!(
+        spawns_while_running > 0,
+        "two seconds of wave should have spawned something"
+    );
+
+    // Pause for twice as long: neither the clock nor the RNG may move.
+    app.insert_resource(Paused(true));
+    let frozen = wave_remaining(&app);
+    let spawns_at_pause = app.world().resource::<Recording>().spawns.len();
+    for _ in 0..240 {
+        step(&mut app);
+    }
+    assert_eq!(
+        wave_remaining(&app),
+        frozen,
+        "the wave clock must not advance while paused"
+    );
+    assert_eq!(
+        app.world().resource::<Recording>().spawns.len(),
+        spawns_at_pause,
+        "no enemy may spawn while paused: spawning draws from the seeded RNG"
+    );
+
+    // Unpausing resumes from where it stopped.
+    app.insert_resource(Paused(false));
+    for _ in 0..120 {
+        step(&mut app);
+    }
+    assert!(
+        wave_remaining(&app) < frozen - 0.5,
+        "unpausing must resume the wave clock"
+    );
+}
+
+#[test]
+fn a_paused_window_is_observationally_equivalent_to_skipped_frames() {
+    // ADR-0005: pausing must not perturb a seeded Run. Frames that run while
+    // paused are frames the simulation never saw, so the spawn stream has to
+    // match a run that simply skipped them.
+    let mut paused = headless(99, 2, true);
+    let mut plain = headless(99, 2, true);
+    paused.update();
+    plain.update();
+
+    for _ in 0..200 {
+        step(&mut paused);
+        step(&mut plain);
+    }
+    paused.insert_resource(Paused(true));
+    for _ in 0..200 {
+        // Only the paused app advances; the plain one waits.
+        step(&mut paused);
+    }
+    paused.insert_resource(Paused(false));
+    for _ in 0..200 {
+        step(&mut paused);
+        step(&mut plain);
+    }
+
+    // Guard against comparing two empty vectors: the run has to actually
+    // spawn for the comparison to mean anything.
+    assert!(
+        !plain.world().resource::<Recording>().spawns.is_empty(),
+        "the reference Run must spawn enemies for this comparison to be meaningful"
+    );
+    assert_eq!(
+        paused.world().resource::<Recording>().spawns,
+        plain.world().resource::<Recording>().spawns,
+        "pausing must not change what the seeded Run produces"
     );
 }

@@ -64,7 +64,7 @@ impl Plugin for EconomyPlugin {
                     )
                         .chain(),
                 )
-                    .run_if(in_state(GameState::InGame)),
+                    .run_if(crate::sim_running),
             );
     }
 }

@@ -103,7 +103,7 @@ impl Plugin for WavesPlugin {
                     spawn_from_edges.in_set(RandomDraw),
                     advance_wave.after(spawn_from_edges),
                 )
-                    .run_if(in_state(GameState::InGame)),
+                    .run_if(crate::sim_running),
             );
     }
 }

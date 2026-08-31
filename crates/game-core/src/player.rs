@@ -79,7 +79,7 @@ impl Plugin for PlayerPlugin {
         )
         .add_systems(
             Update,
-            (player_movement, clamp_to_field).run_if(in_state(GameState::InGame)),
+            (player_movement, clamp_to_field).run_if(crate::sim_running),
         );
     }
 }

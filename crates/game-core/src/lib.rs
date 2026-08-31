@@ -51,6 +51,24 @@ pub enum GameState {
     Defeat,
 }
 
+/// Whether the simulation is frozen (CONTEXT.md: 暂停).
+///
+/// A simulation concern, not a presentation one: pausing has to stop the wave
+/// clock and the RNG draws, so it lives here rather than in `app`. Only the
+/// simulation stops — the HUD and the frozen field stay on screen.
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Paused(pub bool);
+
+/// Run condition for simulation systems: a wave is live and not paused.
+///
+/// Named for what it guards rather than for waves alone — it also gates player
+/// movement, pickups, and hitbox lifetimes. Declared once so every simulation
+/// system freezes together, instead of each growing its own
+/// `in_state(..) && !paused` check that one of them can forget.
+pub fn sim_running(state: Res<State<GameState>>, paused: Res<Paused>) -> bool {
+    *state.get() == GameState::InGame && !paused.0
+}
+
 /// How a Run ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunOutcome {
@@ -79,6 +97,7 @@ impl Plugin for CorePlugin {
         app.init_state::<GameState>()
             .init_resource::<intent::PlayerMoveIntent>()
             .init_resource::<damage::DamageStats>()
+            .init_resource::<Paused>()
             .add_message::<RunStarted>()
             .add_message::<RunEnded>()
             .add_plugins((

@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use game_core::GameState;
 
 use super::settings_screen::spawn_settings_screen;
-use super::{swap_screen, ui_font, ScreenRoot, BUTTON_HOVERED, BUTTON_IDLE};
+use super::{apply_button_color, swap_screen, ui_font, ScreenRoot, SettingsOrigin, BUTTON_IDLE};
 
 /// Plugin that owns the main menu screen and its interactions.
 pub struct MainMenuPlugin;
@@ -100,16 +100,9 @@ fn start_button(
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     for (interaction, mut color) in &mut interaction {
-        match *interaction {
-            Interaction::Pressed => {
-                next_state.set(GameState::StartingWeaponChoice);
-            }
-            Interaction::Hovered => {
-                *color = BackgroundColor(BUTTON_HOVERED);
-            }
-            Interaction::None => {
-                *color = BackgroundColor(BUTTON_IDLE);
-            }
+        apply_button_color(interaction, &mut color);
+        if matches!(*interaction, Interaction::Pressed) {
+            next_state.set(GameState::StartingWeaponChoice);
         }
     }
 }
@@ -125,18 +118,12 @@ fn settings_button(
     >,
 ) {
     for (interaction, mut color) in &mut interaction {
-        match *interaction {
-            Interaction::Pressed => {
-                swap_screen(&mut commands, &roots, |commands| {
-                    spawn_settings_screen(commands, &asset_server);
-                });
-            }
-            Interaction::Hovered => {
-                *color = BackgroundColor(BUTTON_HOVERED);
-            }
-            Interaction::None => {
-                *color = BackgroundColor(BUTTON_IDLE);
-            }
+        apply_button_color(interaction, &mut color);
+        if matches!(*interaction, Interaction::Pressed) {
+            commands.insert_resource(SettingsOrigin::MainMenu);
+            swap_screen(&mut commands, &roots, |commands| {
+                spawn_settings_screen(commands, &asset_server);
+            });
         }
     }
 }

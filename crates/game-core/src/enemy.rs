@@ -79,7 +79,11 @@ impl Plugin for EnemyPlugin {
                 // scheduler ordering.
                 enemy_pursuit.after(crate::combat::CombatSet::ResolveDamage),
                 despawn_off_world,
-            ),
+            )
+                // Previously ungated: enemies only exist during InGame, so it
+                // did not matter. Pause makes it matter — pursuit is driven by
+                // `Time`, which keeps running while paused.
+                .run_if(crate::sim_running),
         );
     }
 }

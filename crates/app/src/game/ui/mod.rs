@@ -58,6 +58,25 @@ pub fn swap_screen(
     spawn(commands);
 }
 
+/// Where the settings screen returns to. It is reachable both from the main
+/// menu and, since 暂停, from the pause overlay mid-Run, so the origin is
+/// shared rather than owned by the screen you navigate to.
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SettingsOrigin {
+    #[default]
+    MainMenu,
+    Pause,
+}
+
+/// Paint a button for its current interaction state.
+pub fn apply_button_color(interaction: &Interaction, color: &mut BackgroundColor) {
+    *color = BackgroundColor(match *interaction {
+        Interaction::Pressed => BUTTON_PRESSED,
+        Interaction::Hovered => BUTTON_HOVERED,
+        Interaction::None => BUTTON_IDLE,
+    });
+}
+
 /// The subsetted Chinese UI font (ADR-0007). `AssetServer.load` dedups by
 /// path, so calling this per screen is cheap and avoids load-order hazards.
 pub fn ui_font(asset_server: &AssetServer, font_size: f32) -> TextFont {

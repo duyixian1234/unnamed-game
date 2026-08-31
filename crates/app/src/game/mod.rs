@@ -5,6 +5,7 @@ pub mod audio;
 pub mod background;
 pub mod diagnostics;
 pub mod keyboard;
+pub mod pause;
 pub mod render;
 pub mod settings;
 pub mod ui;
@@ -30,6 +31,7 @@ impl Plugin for AppPlugin {
             render::RenderPlugin,
             settings::SettingsPlugin,
             keyboard::KeyboardIntentPlugin,
+            pause::PausePlugin,
             ui::UIPlugin,
         ));
 

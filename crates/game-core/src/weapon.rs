@@ -361,7 +361,7 @@ impl Plugin for WeaponPlugin {
                         .after(CombatSet::ResolveDamage),
                     expire_bomber_explosions,
                 )
-                    .run_if(in_state(GameState::InGame)),
+                    .run_if(crate::sim_running),
             );
     }
 }

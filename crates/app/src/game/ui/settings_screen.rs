@@ -12,14 +12,21 @@ use bevy::window::{MonitorSelection, WindowMode};
 use crate::game::settings::{SettingsStore, VOLUME_STEP_PERCENT};
 
 use super::main_menu::spawn_main_menu;
-use super::{swap_screen, ui_font, ScreenRoot, BUTTON_HOVERED, BUTTON_IDLE, BUTTON_PRESSED};
+use super::{apply_button_color, ui_font, ScreenRoot, SettingsOrigin, BUTTON_IDLE};
+
+use crate::game::pause::spawn_pause_overlay;
+
+/// Marks the settings screen itself, so the pause overlay can tell whether a
+/// panel is already open (and so 返回 can despawn just this screen).
+#[derive(Component)]
+pub struct SettingsScreenRoot;
 
 /// Plugin for the settings screen's interactions and label syncing.
 pub struct SettingsScreenPlugin;
 
 impl Plugin for SettingsScreenPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.init_resource::<SettingsOrigin>().add_systems(
             Update,
             (
                 highlight_buttons,
@@ -70,6 +77,7 @@ struct BackButton;
 pub fn spawn_settings_screen(commands: &mut Commands, asset_server: &AssetServer) {
     commands
         .spawn((
+            SettingsScreenRoot,
             ScreenRoot,
             Node {
                 width: Val::Percent(100.0),
@@ -239,11 +247,7 @@ fn highlight_buttons(
     >,
 ) {
     for (interaction, mut color) in &mut buttons {
-        *color = BackgroundColor(match *interaction {
-            Interaction::Pressed => BUTTON_PRESSED,
-            Interaction::Hovered => BUTTON_HOVERED,
-            Interaction::None => BUTTON_IDLE,
-        });
+        apply_button_color(interaction, &mut color);
     }
 }
 
@@ -303,16 +307,25 @@ fn toggle_overlay(
     }
 }
 
+/// Return to wherever the settings screen was opened from. Only this screen is
+/// despawned: during a Run the HUD and the weapon bar are `ScreenRoot`s too,
+/// and a blanket `swap_screen` would take them with it.
 fn go_back(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    roots: Query<Entity, With<ScreenRoot>>,
+    origin: Res<SettingsOrigin>,
+    settings_roots: Query<Entity, With<SettingsScreenRoot>>,
     buttons: Query<&Interaction, (Changed<Interaction>, With<BackButton>)>,
 ) {
-    if any_pressed(buttons.iter()) {
-        swap_screen(&mut commands, &roots, |commands| {
-            spawn_main_menu(commands, &asset_server);
-        });
+    if !any_pressed(buttons.iter()) {
+        return;
+    }
+    for root in &settings_roots {
+        commands.entity(root).despawn();
+    }
+    match *origin {
+        SettingsOrigin::MainMenu => spawn_main_menu(&mut commands, &asset_server),
+        SettingsOrigin::Pause => spawn_pause_overlay(&mut commands, &asset_server),
     }
 }
 
