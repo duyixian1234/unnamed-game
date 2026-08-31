@@ -235,7 +235,7 @@ fn spawn_weapon_card(
             ));
             card.spawn((
                 Text::new(format!(
-                    "六级质变：{}：{}",
+                    "八级质变：{}：{}",
                     path.evolution.name(),
                     path.evolution.description()
                 )),
@@ -283,7 +283,7 @@ fn route_details(kind: WeaponKind) -> String {
         ));
     }
     details.push_str(&format!(
-        "六级质变：{} · {}",
+        "八级质变：{} · {}",
         path.evolution.name(),
         path.evolution.description()
     ));

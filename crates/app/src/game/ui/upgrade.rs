@@ -1,5 +1,5 @@
 //! Between-wave weapon upgrade screen: full route preview (including the
-//! Lv6 evolution) plus clickable options. Choice logic lives in game-core;
+//! Lv8 evolution) plus clickable options. Choice logic lives in game-core;
 //! buttons send an `UpgradeSelected` message (same path as the test AI).
 //! The screen is rebuilt on every entry, so the offered pair always matches
 //! the current level. Text is Chinese (ADR-0007) — add new copy to
@@ -116,8 +116,7 @@ fn spawn_upgrade_screen(
                     })
                     .with_children(|columns| {
                         for kind in equipped_kinds {
-                            if let Some(path) =
-                                UPGRADE_PATHS.iter().find(|path| path.kind == kind)
+                            if let Some(path) = UPGRADE_PATHS.iter().find(|path| path.kind == kind)
                             {
                                 spawn_path_ui(
                                     columns,
@@ -146,7 +145,7 @@ fn update_damage_summary(
 }
 
 /// One weapon's column: header (with current level), the fixed full route
-/// (transparent, including the Lv6 evolution preview), and the picks for its
+/// (transparent, including the Lv8 evolution preview), and the picks for its
 /// next level-up.
 fn spawn_path_ui(
     parent: &mut ChildSpawnerCommands,
@@ -164,14 +163,14 @@ fn spawn_path_ui(
         })
         .with_children(|weapon_node| {
             weapon_node.spawn((
-                Text::new(format!("{}　等级 {}/6", path.kind.display_name(), level)),
+                Text::new(format!("{}　等级 {}/8", path.kind.display_name(), level)),
                 ui_font(asset_server, 26.0),
                 TextColor(Color::srgb(0.9, 0.8, 0.4)),
             ));
 
             // Full route preview, always visible (issue #19 transparency).
             for (i, pair) in path.levels.iter().enumerate() {
-                let target = i + 2; // rows are level-ups 1->2 .. 4->5
+                let target = i + 2; // rows are level-ups 1->2 .. 6->7
                 let mark = |taken: bool| if taken { "x" } else { " " };
                 weapon_node.spawn((
                     Text::new(format!(
@@ -188,7 +187,7 @@ fn spawn_path_ui(
             }
             weapon_node.spawn((
                 Text::new(format!(
-                    "六级质变：{} · {}",
+                    "八级质变：{} · {}",
                     path.evolution.name(),
                     path.evolution.description()
                 )),
@@ -198,7 +197,7 @@ fn spawn_path_ui(
 
             // Clickable picks for the next level-up.
             match level {
-                1..=4 => {
+                1..=6 => {
                     let row = &path.levels[(level - 1) as usize];
                     weapon_node
                         .spawn(Node {
@@ -231,7 +230,7 @@ fn spawn_path_ui(
                             }
                         });
                 }
-                5 => {
+                7 => {
                     // The evolution pick: a single mandatory button.
                     weapon_node
                         .spawn(Node {
@@ -254,7 +253,7 @@ fn spawn_path_ui(
                                     BackgroundColor(Color::srgb(0.6, 0.2, 0.6)),
                                 ))
                                 .with_child((
-                                    Text::new(format!("六级进化：{}", path.evolution.name())),
+                                    Text::new(format!("八级进化：{}", path.evolution.name())),
                                     ui_font(asset_server, 20.0),
                                     TextColor(Color::WHITE),
                                 ));

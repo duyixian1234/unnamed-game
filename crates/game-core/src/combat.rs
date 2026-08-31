@@ -204,7 +204,7 @@ fn resolve_orb_hits(
 ) {
     for (mut orb, orb_transform) in &mut orbs {
         let orb_pos = orb_transform.translation.truncate();
-        let orb_radius = crate::weapon::ORB_HIT_RADIUS;
+        let orb_radius = crate::weapon::ORB_HIT_RADIUS * orb.size;
 
         for (enemy_entity, mut enemy, enemy_transform, mut knockback) in &mut enemies {
             if !hit_cooldown_ready(&orb.hit_cooldowns, enemy_entity) {

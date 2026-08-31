@@ -1,6 +1,10 @@
 //! Weapon upgrade paths: per-WeaponKind level progression with a fixed
-//! 2-choice data table, ending in a Level-6 Evolution (a behavior change,
+//! 2-choice data table, ending in a Level-8 Evolution (a behavior change,
 //! per ADR-0008).
+//!
+//! Options are mechanic effects only (ADR-0010): paths never grant direct
+//! damage — damage growth comes from the Shop. Attack-speed mods are stored
+//! as positive fractions (+15%) and applied as shorter cooldowns.
 //!
 //! Flow: a wave ends -> `GameState::UpgradeChoice`. The player must make one
 //! choice per wave (no skipping, no rerolls); the chosen WeaponKind advances
@@ -25,20 +29,24 @@ pub struct UpgradeOption {
 }
 
 /// A multiplicative stat change applied to the chosen `Weapon` slot.
+/// Mechanic effects only — no direct damage (ADR-0010).
 #[derive(Debug, Clone, Copy)]
 pub enum StatMod {
-    Damage(f32),
-    Cooldown(f32),
+    /// Attack speed increase, stored as a positive fraction (0.15 = +15%)
+    /// and applied as a proportionally shorter cooldown.
+    AttackSpeed(f32),
     Range(f32),
     Knockback(f32),
     ProjectileSpeed(f32),
     OrbitSpeed(f32),
     OrbitRadius(f32),
+    /// Orb collision + visual size multiplier (damage unchanged).
+    OrbSize(f32),
     AdditionalWeapon,
     AdditionalOrb,
 }
 
-/// The Level-6 Evolution of a path (ADR-0008: hard-coded behavior change).
+/// The Level-8 Evolution of a path (ADR-0008: hard-coded behavior change).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Evolution {
     Whirlwind,
@@ -66,15 +74,15 @@ impl Evolution {
     }
 }
 
-/// One WeaponKind's full route: stat options for level-ups 1->2 .. 4->5
-/// (four rows, two options each), then the fixed Level-6 Evolution.
+/// One WeaponKind's full route: mechanic options for level-ups 1->2 .. 6->7
+/// (six rows, two options each), then the fixed Level-8 Evolution.
 pub struct WeaponUpgradePath {
     pub kind: WeaponKind,
-    pub levels: [[UpgradeOption; 2]; 4],
+    pub levels: [[UpgradeOption; 2]; 6],
     pub evolution: Evolution,
 }
 
-/// The fixed upgrade table (issue #19). Order matches `UPGRADE_PATHS` lookup.
+/// The fixed upgrade table (issue #19; mechanic-only per ADR-0010).
 pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
     // Melee Swing -> Whirlwind
     WeaponUpgradePath {
@@ -82,32 +90,52 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
         levels: [
             [
                 UpgradeOption {
-                    label: "伤害 +25%",
-                    mods: &[StatMod::Damage(1.25)],
+                    label: "额外近战 +1",
+                    mods: &[StatMod::AdditionalWeapon],
                 },
                 UpgradeOption {
-                    label: "额外近战武器 +1",
-                    mods: &[StatMod::AdditionalWeapon],
+                    label: "攻速 +15%",
+                    mods: &[StatMod::AttackSpeed(0.15)],
                 },
             ],
             [
                 UpgradeOption {
-                    label: "冷却 -15%",
-                    mods: &[StatMod::Cooldown(0.85)],
+                    label: "击退 +35%",
+                    mods: &[StatMod::Knockback(1.35)],
                 },
                 UpgradeOption {
-                    label: "额外近战武器 +1",
-                    mods: &[StatMod::AdditionalWeapon],
+                    label: "范围 +20%",
+                    mods: &[StatMod::Range(1.2)],
                 },
             ],
             [
                 UpgradeOption {
-                    label: "伤害 +25%",
-                    mods: &[StatMod::Damage(1.25)],
+                    label: "攻速 +15%",
+                    mods: &[StatMod::AttackSpeed(0.15)],
                 },
                 UpgradeOption {
-                    label: "冷却 -15%",
-                    mods: &[StatMod::Cooldown(0.85)],
+                    label: "击退 +35%",
+                    mods: &[StatMod::Knockback(1.35)],
+                },
+            ],
+            [
+                UpgradeOption {
+                    label: "额外近战 +1",
+                    mods: &[StatMod::AdditionalWeapon],
+                },
+                UpgradeOption {
+                    label: "范围 +20%",
+                    mods: &[StatMod::Range(1.2)],
+                },
+            ],
+            [
+                UpgradeOption {
+                    label: "攻速 +15%",
+                    mods: &[StatMod::AttackSpeed(0.15)],
+                },
+                UpgradeOption {
+                    label: "击退 +35%",
+                    mods: &[StatMod::Knockback(1.35)],
                 },
             ],
             [
@@ -116,8 +144,8 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
                     mods: &[StatMod::Range(1.2)],
                 },
                 UpgradeOption {
-                    label: "伤害 +30%",
-                    mods: &[StatMod::Damage(1.3)],
+                    label: "攻速 +15%",
+                    mods: &[StatMod::AttackSpeed(0.15)],
                 },
             ],
         ],
@@ -129,12 +157,12 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
         levels: [
             [
                 UpgradeOption {
-                    label: "伤害 +25%",
-                    mods: &[StatMod::Damage(1.25)],
+                    label: "攻速 +15%",
+                    mods: &[StatMod::AttackSpeed(0.15)],
                 },
                 UpgradeOption {
-                    label: "冷却 -15%",
-                    mods: &[StatMod::Cooldown(0.85)],
+                    label: "射程 +15%",
+                    mods: &[StatMod::Range(1.15)],
                 },
             ],
             [
@@ -143,28 +171,48 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
                     mods: &[StatMod::ProjectileSpeed(1.2)],
                 },
                 UpgradeOption {
-                    label: "射程 +25%",
-                    mods: &[StatMod::Range(1.25)],
+                    label: "攻速 +15%",
+                    mods: &[StatMod::AttackSpeed(0.15)],
                 },
             ],
             [
                 UpgradeOption {
-                    label: "伤害 +30%",
-                    mods: &[StatMod::Damage(1.3)],
+                    label: "射程 +15%",
+                    mods: &[StatMod::Range(1.15)],
                 },
                 UpgradeOption {
-                    label: "冷却 -15%",
-                    mods: &[StatMod::Cooldown(0.85)],
+                    label: "弹速 +20%",
+                    mods: &[StatMod::ProjectileSpeed(1.2)],
                 },
             ],
             [
                 UpgradeOption {
-                    label: "弹速 +15%",
-                    mods: &[StatMod::ProjectileSpeed(1.15)],
+                    label: "攻速 +15%",
+                    mods: &[StatMod::AttackSpeed(0.15)],
                 },
                 UpgradeOption {
-                    label: "伤害 +25%",
-                    mods: &[StatMod::Damage(1.25)],
+                    label: "弹速 +20%",
+                    mods: &[StatMod::ProjectileSpeed(1.2)],
+                },
+            ],
+            [
+                UpgradeOption {
+                    label: "射程 +15%",
+                    mods: &[StatMod::Range(1.15)],
+                },
+                UpgradeOption {
+                    label: "攻速 +15%",
+                    mods: &[StatMod::AttackSpeed(0.15)],
+                },
+            ],
+            [
+                UpgradeOption {
+                    label: "弹速 +20%",
+                    mods: &[StatMod::ProjectileSpeed(1.2)],
+                },
+                UpgradeOption {
+                    label: "射程 +15%",
+                    mods: &[StatMod::Range(1.15)],
                 },
             ],
         ],
@@ -176,42 +224,62 @@ pub const UPGRADE_PATHS: &[WeaponUpgradePath] = &[
         levels: [
             [
                 UpgradeOption {
-                    label: "伤害 +25%",
-                    mods: &[StatMod::Damage(1.25)],
+                    label: "额外环绕球 +1",
+                    mods: &[StatMod::AdditionalOrb],
                 },
                 UpgradeOption {
-                    label: "环绕速度 +20%",
+                    label: "转速 +20%",
                     mods: &[StatMod::OrbitSpeed(1.2)],
                 },
             ],
             [
                 UpgradeOption {
-                    label: "最大半径 +25%",
-                    mods: &[StatMod::OrbitRadius(1.25)],
+                    label: "球体 +15%",
+                    mods: &[StatMod::OrbSize(1.15)],
                 },
                 UpgradeOption {
-                    label: "伤害 +25%",
-                    mods: &[StatMod::Damage(1.25)],
+                    label: "半径 +25%",
+                    mods: &[StatMod::OrbitRadius(1.25)],
                 },
             ],
             [
                 UpgradeOption {
-                    label: "伤害 +25%",
-                    mods: &[StatMod::Damage(1.25)],
+                    label: "转速 +20%",
+                    mods: &[StatMod::OrbitSpeed(1.2)],
                 },
+                UpgradeOption {
+                    label: "球体 +15%",
+                    mods: &[StatMod::OrbSize(1.15)],
+                },
+            ],
+            [
                 UpgradeOption {
                     label: "额外环绕球 +1",
                     mods: &[StatMod::AdditionalOrb],
                 },
+                UpgradeOption {
+                    label: "半径 +25%",
+                    mods: &[StatMod::OrbitRadius(1.25)],
+                },
             ],
             [
                 UpgradeOption {
-                    label: "环绕速度 +25%",
-                    mods: &[StatMod::OrbitSpeed(1.25)],
+                    label: "转速 +20%",
+                    mods: &[StatMod::OrbitSpeed(1.2)],
                 },
                 UpgradeOption {
-                    label: "伤害 +30%",
-                    mods: &[StatMod::Damage(1.3)],
+                    label: "球体 +15%",
+                    mods: &[StatMod::OrbSize(1.15)],
+                },
+            ],
+            [
+                UpgradeOption {
+                    label: "半径 +25%",
+                    mods: &[StatMod::OrbitRadius(1.25)],
+                },
+                UpgradeOption {
+                    label: "转速 +20%",
+                    mods: &[StatMod::OrbitSpeed(1.2)],
                 },
             ],
         ],
@@ -227,7 +295,7 @@ pub fn path_for(kind: WeaponKind) -> &'static WeaponUpgradePath {
         .expect("every WeaponKind has an upgrade path")
 }
 
-/// Per-WeaponKind upgrade level (1..=6). Shared across every instance of a
+/// Per-WeaponKind upgrade level (1..=8). Shared across every instance of a
 /// kind; starts at 1.
 #[derive(Resource, Debug, Default)]
 pub struct WeaponLevels {
@@ -239,19 +307,19 @@ impl WeaponLevels {
         self.levels.get(&kind).copied().unwrap_or(1)
     }
 
-    /// Write a level directly (1..=6). Used by the apply system; also usable
+    /// Write a level directly (1..=8). Used by the apply system; also usable
     /// by tests as scenario setup.
     pub fn set_level(&mut self, kind: WeaponKind, level: u8) {
-        self.levels.insert(kind, level.clamp(1, 6));
+        self.levels.insert(kind, level.clamp(1, 8));
     }
 
     pub fn maxed(&self, kind: WeaponKind) -> bool {
-        self.level(kind) >= 6
+        self.level(kind) >= 8
     }
 }
 
 /// The player picked one upgrade option for `kind` (option 0/1; ignored for
-/// the Level-6 Evolution). Sent by the upgrade UI buttons or the test AI.
+/// the Level-8 Evolution). Sent by the upgrade UI buttons or the test AI.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct UpgradeSelected {
     pub kind: WeaponKind,
@@ -296,18 +364,18 @@ fn apply_upgrades(
     for request in requests.read() {
         let kind = request.kind;
         let level = levels.level(kind);
-        if level >= 6 {
+        if level >= 8 {
             continue;
         }
         // Stat levels are 2-choice; the Evolution pick ignores the index.
-        if level < 5 && request.option > 1 {
+        if level < 7 && request.option > 1 {
             continue;
         }
         if !weapons.iter().any(|(_, weapon, _)| weapon.kind == kind) {
             continue;
         }
 
-        if level == 5 {
+        if level == 7 {
             if kind == WeaponKind::MeleeSwing {
                 // Whirlwind evolution: merge every MeleeSwing instance into
                 // the lowest slot, pooling their damage into the single blade
@@ -400,8 +468,7 @@ fn apply_upgrades(
                         weapon.cooldown.set_elapsed(offset);
                     }
                 }
-                let offset =
-                    weapon.cooldown.duration() * (count - 1) as u32 / count as u32;
+                let offset = weapon.cooldown.duration() * (count - 1) as u32 / count as u32;
                 weapon.cooldown.set_elapsed(offset);
                 commands.entity(player).with_child((
                     weapon,
@@ -416,7 +483,7 @@ fn apply_upgrades(
     }
 }
 
-/// When every equipped path is already at Lv6 there is nothing left to offer,
+/// When every equipped path is already at Lv8 there is nothing left to offer,
 /// so the mandatory choice is vacuous — proceed to the Shop instead of
 /// dead-locking. Keyed on all *equipped* kinds (not just the starting one):
 /// a maxed starting weapon must not skip the upgrade screen while other
@@ -436,16 +503,16 @@ fn auto_advance_when_maxed(
     }
 }
 
-/// A weapon that reached Level 6 and changed behavior (ADR-0008). The
+/// A weapon that reached Level 8 and changed behavior (ADR-0008). The
 /// evolution-specific systems in `weapon.rs` key off this marker.
 #[derive(Component, Debug)]
 pub struct Evolved;
 
 fn apply_mod(weapon: &mut Weapon, m: StatMod) {
     match m {
-        StatMod::Damage(x) => weapon.damage *= x,
-        StatMod::Cooldown(x) => {
-            let reduced = weapon.cooldown.duration().mul_f32(x);
+        // Positive attack speed = proportionally shorter cooldown.
+        StatMod::AttackSpeed(x) => {
+            let reduced = weapon.cooldown.duration().div_f32(1.0 + x);
             weapon.cooldown.set_duration(reduced);
         }
         StatMod::Range(x) => weapon.range *= x,
@@ -453,6 +520,7 @@ fn apply_mod(weapon: &mut Weapon, m: StatMod) {
         StatMod::ProjectileSpeed(x) => weapon.projectile_speed *= x,
         StatMod::OrbitSpeed(x) => weapon.orbit_speed *= x,
         StatMod::OrbitRadius(x) => weapon.orbit_radius *= x,
+        StatMod::OrbSize(x) => weapon.orb_size *= x,
         StatMod::AdditionalWeapon => {}
         StatMod::AdditionalOrb => weapon.orb_count = weapon.orb_count.saturating_add(1),
     }

@@ -24,7 +24,7 @@ const THREAT_RADIUS: f32 = 300.0;
 #[derive(Resource, Debug, Clone)]
 pub struct AiBuild {
     pub weapon: WeaponKind,
-    pub upgrade_options: [usize; 4],
+    pub upgrade_options: [usize; 6],
     pub buy_items: bool,
 }
 
@@ -32,7 +32,7 @@ impl Default for AiBuild {
     fn default() -> Self {
         Self {
             weapon: WeaponKind::PiercingProjectile,
-            upgrade_options: [0; 4],
+            upgrade_options: [0; 6],
             buy_items: true,
         }
     }
@@ -67,8 +67,24 @@ fn ai_starting_weapon(build: Res<AiBuild>, mut writer: MessageWriter<StartingWea
     writer.write(StartingWeaponSelected { kind: build.weapon });
 }
 
-/// Continue to the next wave from the shop.
-fn ai_continue(mut next_state: ResMut<NextState<GameState>>) {
+/// Continue to the next wave from the shop — but only once nothing is
+/// affordable anymore. Shop lasts a single ambiguous-ordered frame otherwise,
+/// and purchase requests written by `ai_buy` can land after
+/// `process_purchases` ran (or after the state flipped to InGame), so the AI
+/// would silently never buy anything.
+fn ai_continue(
+    build: Res<AiBuild>,
+    materials: Res<crate::economy::Materials>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    let cheapest = crate::shop::SHOP_ITEMS
+        .iter()
+        .map(|item| item.cost)
+        .min()
+        .unwrap_or(u32::MAX);
+    if build.buy_items && materials.count >= cheapest {
+        return;
+    }
     next_state.set(GameState::InGame);
 }
 
@@ -83,7 +99,7 @@ fn ai_upgrade(
     if let Some(kind) = starting_weapon.selected {
         if !levels.maxed(kind) {
             let level = levels.level(kind);
-            let option = if level < 5 {
+            let option = if level < 7 {
                 build.upgrade_options[(level - 1) as usize]
             } else {
                 0

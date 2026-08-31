@@ -663,7 +663,7 @@ fn every_single_weapon_upgrade_path_meets_balance_checkpoints() {
         WeaponKind::MeleeSwing,
         WeaponKind::OrbitingOrb,
     ] {
-        for choices in 0u8..16 {
+        for choices in 0u8..64 {
             let upgrade_options = std::array::from_fn(|level| ((choices >> level) & 1) as usize);
             let mut app = headless(42, 5, true);
             app.insert_resource(AiBuild {
@@ -683,7 +683,7 @@ fn every_single_weapon_upgrade_path_meets_balance_checkpoints() {
             assert_eq!(
                 current_state(&app),
                 GameState::Victory,
-                "{kind:?} choices {choices:04b} must survive 5 waves; \
+                "{kind:?} choices {choices:06b} must survive 5 waves; \
                  reached wave {}, dealt {:.0} damage",
                 app.world().resource::<Wave>().number,
                 app.world().resource::<DamageStats>().run.total(),
@@ -692,15 +692,19 @@ fn every_single_weapon_upgrade_path_meets_balance_checkpoints() {
     }
 
     for (kind, choices) in [
-        (WeaponKind::PiercingProjectile, 0b0000u8),
-        (WeaponKind::MeleeSwing, 0b0000u8),
-        (WeaponKind::OrbitingOrb, 0b1010u8),
+        (WeaponKind::PiercingProjectile, 0b000000u32),
+        (WeaponKind::MeleeSwing, 0b000000u32),
+        // 转速 +20% (row 1 B) and 球体 +15% (row 3 B).
+        (WeaponKind::OrbitingOrb, 0b0101u32),
     ] {
+        // Damage growth now lives in the Shop (ADR-0010), so the 10-wave
+        // checkpoint includes the AI buying items; paths alone carry no
+        // direct damage anymore.
         let mut app = headless(42, 10, true);
         app.insert_resource(AiBuild {
             weapon: kind,
             upgrade_options: std::array::from_fn(|level| ((choices >> level) & 1) as usize),
-            buy_items: false,
+            buy_items: true,
         });
         app.update();
         for _ in 0..20_000 {
@@ -1134,7 +1138,7 @@ fn melee_upgrade_adds_independent_weapon_slot_with_shared_stats() {
     set_next_state(&mut app, GameState::UpgradeChoice);
     step(&mut app);
 
-    send_upgrade(&mut app, WeaponKind::MeleeSwing, 1);
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 0);
     step(&mut app);
     step(&mut app);
 
@@ -1166,19 +1170,15 @@ fn added_melee_weapons_attack_with_staggered_phases() {
     set_next_state(&mut app, GameState::UpgradeChoice);
     step(&mut app);
 
-    send_upgrade(&mut app, WeaponKind::MeleeSwing, 1);
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 0);
     step(&mut app);
     step(&mut app);
 
-    let mut weapons = app
-        .world_mut()
-        .query_filtered::<&Weapon, Without<Player>>();
+    let mut weapons = app.world_mut().query_filtered::<&Weapon, Without<Player>>();
     let mut phases: Vec<f32> = weapons
         .iter(app.world())
         .filter(|weapon| weapon.kind == WeaponKind::MeleeSwing)
-        .map(|weapon| {
-            weapon.cooldown.elapsed_secs() / weapon.cooldown.duration().as_secs_f32()
-        })
+        .map(|weapon| weapon.cooldown.elapsed_secs() / weapon.cooldown.duration().as_secs_f32())
         .collect();
     phases.sort_by(|a, b| a.partial_cmp(b).unwrap());
     assert_eq!(phases.len(), 2);
@@ -1211,7 +1211,7 @@ fn melee_evolution_folds_merged_slots_run_stats_into_surviving_slot() {
     // A second melee weapon through the real flow.
     set_next_state(&mut app, GameState::UpgradeChoice);
     step(&mut app);
-    send_upgrade(&mut app, WeaponKind::MeleeSwing, 1);
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 0);
     step(&mut app);
     step(&mut app);
     set_next_state(&mut app, GameState::InGame);
@@ -1249,7 +1249,7 @@ fn melee_evolution_folds_merged_slots_run_stats_into_surviving_slot() {
     // Evolve: the merged-away slot's history folds into the survivor.
     app.world_mut()
         .resource_mut::<WeaponLevels>()
-        .set_level(WeaponKind::MeleeSwing, 5);
+        .set_level(WeaponKind::MeleeSwing, 7);
     set_next_state(&mut app, GameState::UpgradeChoice);
     step(&mut app);
     send_upgrade(&mut app, WeaponKind::MeleeSwing, 0);
@@ -1272,7 +1272,7 @@ fn melee_evolution_folds_merged_slots_run_stats_into_surviving_slot() {
 }
 
 #[test]
-fn melee_lv6_evolution_merges_all_melee_slots_into_one_whirlwind() {
+fn melee_lv8_evolution_merges_all_melee_slots_into_one_whirlwind() {
     let mut app = headless(42, 5, false);
     app.insert_resource(WaveConfig {
         max_waves: 5,
@@ -1281,18 +1281,18 @@ fn melee_lv6_evolution_merges_all_melee_slots_into_one_whirlwind() {
     app.update();
     start_run_with_weapon(&mut app, WeaponKind::MeleeSwing);
 
-    // Acquire a second melee weapon (额外近战武器 +1) through the real flow.
+    // Acquire a second melee weapon (额外近战 +1) through the real flow.
     set_next_state(&mut app, GameState::UpgradeChoice);
     step(&mut app);
-    send_upgrade(&mut app, WeaponKind::MeleeSwing, 1);
+    send_upgrade(&mut app, WeaponKind::MeleeSwing, 0);
     step(&mut app);
     step(&mut app);
     assert_eq!(current_state(&app), GameState::Shop);
 
-    // Level the path to 5, then make the Lv6 evolution pick.
+    // Level the path to 7, then make the Lv8 evolution pick.
     app.world_mut()
         .resource_mut::<WeaponLevels>()
-        .set_level(WeaponKind::MeleeSwing, 5);
+        .set_level(WeaponKind::MeleeSwing, 7);
     set_next_state(&mut app, GameState::UpgradeChoice);
     step(&mut app);
     send_upgrade(&mut app, WeaponKind::MeleeSwing, 0);
@@ -1310,12 +1310,18 @@ fn melee_lv6_evolution_merges_all_melee_slots_into_one_whirlwind() {
         .collect();
     assert_eq!(melee.len(), 1, "all melee instances merge into one");
     let (kept, weapon) = melee[0];
-    assert_eq!(weapon.damage, 80.0, "merged blade pools both weapons' damage");
+    assert_eq!(
+        weapon.damage, 80.0,
+        "merged blade pools both weapons' damage"
+    );
     assert!(
         app.world().get::<Evolved>(kept).is_some(),
         "the merged weapon is the evolved one"
     );
-    assert_eq!(weapon.range, 105.0, "range comes from the max-level template");
+    assert_eq!(
+        weapon.range, 105.0,
+        "range comes from the max-level template"
+    );
 
     // Back in the wave, exactly one whirlwind blade fights for that slot.
     set_next_state(&mut app, GameState::InGame);
@@ -1850,7 +1856,7 @@ fn rush_wave_end(app: &mut App) {
     app.world_mut().resource_mut::<Wave>().wave_timer = Timer::from_seconds(0.01, TimerMode::Once);
 }
 
-/// Scenario setup + player agency: put `kind` at Lv5, then make the Lv6
+/// Scenario setup + player agency: put `kind` at Lv7, then make the Lv8
 /// evolution pick through the real UpgradeChoice flow (levels resource write
 /// is scenario setup; the pick itself goes through the message path).
 const DERIVED_DAMAGE_SLOT: WeaponSlot = WeaponSlot(3);
@@ -1858,7 +1864,7 @@ const DERIVED_DAMAGE_SLOT: WeaponSlot = WeaponSlot(3);
 fn evolve_via_choice(app: &mut App, kind: WeaponKind) {
     app.world_mut()
         .resource_mut::<WeaponLevels>()
-        .set_level(kind, 5);
+        .set_level(kind, 7);
     set_next_state(app, GameState::UpgradeChoice);
     step(app);
     assert_eq!(current_state(app), GameState::UpgradeChoice);
@@ -1907,7 +1913,7 @@ fn upgrade_choice_flow_and_stat_application() {
         "Shop must not be reached before the pick"
     );
 
-    // Pick Piercing L2 B (Cooldown -15%): stats change, level +1, then Shop.
+    // Pick Piercing L2 B (射程 +15%): stats change, level +1, then Shop.
     send_upgrade(&mut app, WeaponKind::PiercingProjectile, 1);
     step(&mut app);
     step(&mut app);
@@ -1934,21 +1940,21 @@ fn upgrade_choice_flow_and_stat_application() {
     for weapon in weapons.iter(app.world()) {
         match weapon.kind {
             WeaponKind::PiercingProjectile => {
-                let cooldown = weapon.cooldown.duration().as_secs_f32();
+                let range = weapon.range;
                 assert!(
-                    (cooldown - 0.51).abs() < 1e-6,
-                    "cooldown -15% applied, got {cooldown}"
+                    (range - 1035.0).abs() < 1e-6,
+                    "range +15% applied, got {range}"
                 );
                 assert_eq!(weapon.damage, 24.0, "unpicked stat untouched");
             }
             WeaponKind::MeleeSwing => {
-                assert_eq!(weapon.damage, 25.0, "other weapons untouched");
+                assert_eq!(weapon.damage, 40.0, "other weapons untouched");
             }
             WeaponKind::OrbitingOrb => {}
         }
     }
 
-    // Wave 2: continue the equipped Piercing path with L3 A (Speed +20%).
+    // Wave 2: continue the equipped Piercing path with L3 A (弹速 +20%).
     set_next_state(&mut app, GameState::InGame);
     step(&mut app);
     rush_wave_end(&mut app);

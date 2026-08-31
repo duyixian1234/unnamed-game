@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use bevy::prelude::*;
 
-use crate::upgrade::{Evolution, path_for};
+use crate::upgrade::{path_for, Evolution};
 use crate::weapon::WeaponKind;
 
 /// Stable identity of one equipped Weapon Slot.
@@ -32,7 +32,8 @@ impl DamageSource {
 #[derive(Debug, Clone, Copy)]
 pub struct SlotDamage {
     pub kind: WeaponKind,
-    /// Set when the slot's weapon reached Level 6 (ADR-0008): summaries
+    /// Set when the slot's weapon reached Level 8, the Evolution level
+    /// (ADR-0008): summaries
     /// display the evolution's name instead of the base kind's.
     pub evolution: Option<Evolution>,
     pub effective_damage: f32,
@@ -87,7 +88,7 @@ impl DamagePeriod {
 
     /// Register (or refresh) a slot's identity. Public so tests can set up
     /// scenario summaries directly (same pattern as `WeaponLevels::set_level`).
-    pub     fn register_weapon(
+    pub fn register_weapon(
         &mut self,
         slot: WeaponSlot,
         kind: WeaponKind,
@@ -109,14 +110,11 @@ impl DamagePeriod {
         let Some(removed) = self.slots.remove(&from) else {
             return;
         };
-        let entry = self
-            .slots
-            .entry(into)
-            .or_insert(SlotDamage {
-                kind: removed.kind,
-                evolution: removed.evolution,
-                effective_damage: 0.0,
-            });
+        let entry = self.slots.entry(into).or_insert(SlotDamage {
+            kind: removed.kind,
+            evolution: removed.evolution,
+            effective_damage: 0.0,
+        });
         entry.effective_damage += removed.effective_damage;
     }
 }
@@ -159,12 +157,18 @@ impl DamageStats {
 pub(crate) fn begin_wave(
     mut stats: ResMut<DamageStats>,
     starting_weapon: Res<crate::weapon::StartingWeapon>,
-    weapons: Query<(&WeaponSlot, &crate::weapon::Weapon, Option<&crate::upgrade::Evolved>)>,
+    weapons: Query<(
+        &WeaponSlot,
+        &crate::weapon::Weapon,
+        Option<&crate::upgrade::Evolved>,
+    )>,
 ) {
     stats.current_wave = DamagePeriod::default();
     stats.current_wave_completed = false;
     if let Some(kind) = starting_weapon.selected {
-        stats.current_wave.register_weapon(WeaponSlot(0), kind, None);
+        stats
+            .current_wave
+            .register_weapon(WeaponSlot(0), kind, None);
         stats.run.register_weapon(WeaponSlot(0), kind, None);
     }
     for (slot, weapon, evolved) in &weapons {

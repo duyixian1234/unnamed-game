@@ -12,9 +12,9 @@ use bevy::render::render_resource::PrimitiveTopology;
 
 use game_core::damage::WeaponSlot;
 use game_core::economy::Material;
-use game_core::weapon::MAX_WEAPON_SLOTS;
 use game_core::enemy::Enemy;
 use game_core::player::Player;
+use game_core::weapon::MAX_WEAPON_SLOTS;
 use game_core::weapon::{
     BomberExplosion, MeleeHit, OrbRespawn, OrbitOrb, Projectile, Whirlwind, ORB_HIT_RADIUS,
 };
@@ -141,13 +141,7 @@ fn attach_melee_sprite(
 ) {
     for (entity, melee, mut transform) in &mut melee_hits {
         transform.rotation = Quat::from_rotation_z(melee.direction.y.atan2(melee.direction.x));
-        let (blade, trail) = melee_colors(
-            melee
-                .source
-                .slot()
-                .unwrap_or(WeaponSlot(0))
-                .0,
-        );
+        let (blade, trail) = melee_colors(melee.source.slot().unwrap_or(WeaponSlot(0)).0);
         let mesh = meshes.add(melee_blade_mesh(melee.radius));
         let material = materials.add(ColorMaterial::from(blade));
         commands
@@ -222,12 +216,8 @@ fn animate_melee_trails(
         };
         if let Some(material) = materials.get_mut(&material.0) {
             let srgba = trail.color.to_srgba();
-            material.color = Color::srgba(
-                srgba.red,
-                srgba.green,
-                srgba.blue,
-                0.32 * (1.0 - progress),
-            );
+            material.color =
+                Color::srgba(srgba.red, srgba.green, srgba.blue, 0.32 * (1.0 - progress));
         }
     }
 }
@@ -289,21 +279,18 @@ fn orb_color(ordinal: u8) -> Color {
     ORB_PALETTE[ordinal as usize % ORB_PALETTE.len()]
 }
 
-/// Orbs render at 18px to exactly match the orb hitbox. Runs on every
-/// `Added<OrbitOrb>` — including a Bomber Orb's respawn, which re-inserts the
+/// Orbs render at 18px * size to exactly match the orb hitbox. Runs every
+/// frame (not just `Added<OrbitOrb>`) so a mid-run 球体 +15% upgrade rescales
+/// existing orbs — including a Bomber Orb's respawn, which re-inserts the
 /// component (and a fresh scale-1 Transform) on an entity that already has
-/// its sprite, so the scale must be re-applied there too.
-#[allow(clippy::type_complexity)] // Added<T> + Option<&mut Sprite> disambiguation
+/// its sprite.
 fn attach_orb_sprite(
     mut commands: Commands,
     sprite_assets: Res<SpriteAssets>,
-    mut orbs: Query<
-        (Entity, &OrbitOrb, Option<&mut Sprite>, &mut Transform),
-        Added<OrbitOrb>,
-    >,
+    mut orbs: Query<(Entity, &OrbitOrb, Option<&mut Sprite>, &mut Transform)>,
 ) {
     for (entity, orb, sprite, mut transform) in &mut orbs {
-        transform.scale = Vec3::splat(ORB_HIT_RADIUS * 2.0 / ATLAS_CELL as f32);
+        transform.scale = Vec3::splat(ORB_HIT_RADIUS * 2.0 * orb.size / ATLAS_CELL as f32);
         match sprite {
             // Respawned orb: sprite survives, only tint and scale refresh.
             Some(mut sprite) => sprite.color = orb_color(orb.ordinal),

@@ -93,6 +93,9 @@ pub struct Weapon {
     pub orbit_radius: f32,
     /// Number of independent orbs produced by this weapon slot.
     pub orb_count: u8,
+    /// Orb collision + visual size multiplier (upgrade paths scale it,
+    /// damage unchanged); used when kind == OrbitingOrb.
+    pub orb_size: f32,
 }
 
 impl Weapon {
@@ -116,6 +119,7 @@ impl Weapon {
             orbit_speed,
             orbit_radius,
             orb_count: 1,
+            orb_size: 1.0,
         }
     }
 
@@ -138,6 +142,7 @@ impl Weapon {
             orbit_speed: self.orbit_speed,
             orbit_radius: self.orbit_radius,
             orb_count: self.orb_count,
+            orb_size: self.orb_size,
         }
     }
 
@@ -212,7 +217,7 @@ pub struct Whirlwind {
 
 /// Seconds before the whirlwind can strike the same enemy again.
 pub const WHIRLWIND_REHIT: f32 = 0.4;
-/// Extra knockback on whirlwind strikes (Lv6: knockback boost).
+/// Extra knockback on whirlwind strikes (Evolution: knockback boost).
 const WHIRLWIND_KNOCKBACK_BONUS: f32 = 1.25;
 /// Radius of the Bomber Orb's contact explosion.
 pub const BOMBER_AOE_RADIUS: f32 = 90.0;
@@ -280,6 +285,9 @@ pub struct OrbitOrb {
     /// Spin direction: +1 counter-clockwise, -1 clockwise. Alternates by
     /// global ordinal (ADR-0009 amendment).
     pub spin: f32,
+    /// Collision + visual size multiplier, synced from the owning weapon's
+    /// `orb_size` every frame.
+    pub size: f32,
     /// Enemies hit this frame; Bomber Orb uses this to detect contact.
     pub hit_enemies: Vec<Entity>,
     /// Per-enemy cooldowns make contact damage independent of frame rate.
@@ -301,6 +309,7 @@ pub struct OrbRespawn {
     pub index: u8,
     pub ordinal: u8,
     pub spin: f32,
+    pub size: f32,
     pub bomber: bool,
     pub timer: Timer,
 }
@@ -577,6 +586,7 @@ fn update_orbs(
                     kind: weapon.kind,
                 },
                 evolved.is_some(),
+                weapon.orb_size,
                 weapon.orb_count.max(1),
             ));
         }
@@ -608,6 +618,7 @@ fn update_orbs(
             index: respawn.index,
             ordinal: respawn.ordinal,
             spin: respawn.spin,
+            size: respawn.size,
             hit_enemies: Vec::new(),
             hit_cooldowns: Vec::new(),
         };
@@ -620,17 +631,14 @@ fn update_orbs(
     }
 
     // Rotate existing orbs around the player and re-sync upgradeable stats.
-    let total: u32 = specs
-        .iter()
-        .map(|(_, _, _, _, _, _, _, count)| *count as u32)
-        .sum();
+    let total: u32 = specs.iter().map(|(.., count)| *count as u32).sum();
     let rephase = respawns.iter().next().is_none() && orbs.iter().count() as u32 != total;
     for (_, mut orb, mut transform) in &mut orbs {
         if rephase {
             let ordinal = specs
                 .iter()
                 .take_while(|(slot, ..)| *slot != orb.slot)
-                .map(|(_, _, _, _, _, _, _, count)| *count as u32)
+                .map(|(.., count)| *count as u32)
                 .sum::<u32>()
                 + orb.index as u32;
             let angular_phase = ordinal as f32 / total.max(1) as f32;
@@ -639,7 +647,7 @@ fn update_orbs(
             orb.ordinal = ordinal as u8;
             orb.spin = spin_sign(ordinal);
         }
-        if let Some((_, damage, knockback, angular_speed, max_radius, source, _, _)) =
+        if let Some((_, damage, knockback, angular_speed, max_radius, source, _, size, _)) =
             specs.iter().find(|(slot, ..)| *slot == orb.slot)
         {
             orb.damage = *damage;
@@ -647,6 +655,7 @@ fn update_orbs(
             orb.angular_speed = *angular_speed;
             orb.max_radius = *max_radius;
             orb.source = *source;
+            orb.size = *size;
         }
         orb.angle += orb.spin * orb.angular_speed * time.delta_secs();
         orb.radial_phase = (orb.radial_phase + time.delta_secs() / ORB_RADIUS_CYCLE).fract();
@@ -664,7 +673,8 @@ fn update_orbs(
 
     // Ensure each weapon has its requested number of independent orbs.
     let mut ordinal = 0u32;
-    for (slot, damage, knockback, angular_speed, max_radius, source, evolved, count) in specs {
+    for (slot, damage, knockback, angular_speed, max_radius, source, evolved, size, count) in specs
+    {
         for index in 0..count {
             let exists = orbs
                 .iter()
@@ -692,6 +702,7 @@ fn update_orbs(
                     index,
                     ordinal: ordinal as u8,
                     spin: spin_sign(ordinal),
+                    size,
                     hit_enemies: Vec::new(),
                     hit_cooldowns: Vec::new(),
                 },
@@ -953,6 +964,7 @@ fn bomber_orb_explosions(
                 index: orb.index,
                 ordinal: orb.ordinal,
                 spin: orb.spin,
+                size: orb.size,
                 bomber: true,
                 timer: Timer::from_seconds(BOMBER_RESPAWN, TimerMode::Once),
             });
