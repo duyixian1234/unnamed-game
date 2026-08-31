@@ -293,7 +293,12 @@ fn attach_orb_sprite(
         transform.scale = Vec3::splat(ORB_HIT_RADIUS * 2.0 * orb.size / ATLAS_CELL as f32);
         match sprite {
             // Respawned orb: sprite survives, only tint and scale refresh.
-            Some(mut sprite) => sprite.color = orb_color(orb.ordinal),
+            // Re-show it too — `hide_orb_respawns` hid this same entity while it
+            // was an `OrbRespawn`, and the simulation must not know about that.
+            Some(mut sprite) => {
+                sprite.color = orb_color(orb.ordinal);
+                commands.entity(entity).insert(Visibility::Visible);
+            }
             None => {
                 let mut new_sprite = atlas_sprite(&sprite_assets, atlas_index::ORB);
                 new_sprite.color = orb_color(orb.ordinal);
@@ -303,9 +308,19 @@ fn attach_orb_sprite(
     }
 }
 
-fn hide_orb_respawns(mut respawns: Query<&mut Transform, Added<OrbRespawn>>) {
-    for mut transform in &mut respawns {
-        transform.translation.z = -1.0;
+fn hide_orb_respawns(mut commands: Commands, respawns: Query<Entity, With<OrbRespawn>>) {
+    for entity in &respawns {
+        // The orb's sprite lives on this same entity. Hiding it for the respawn
+        // delay is what `hide_orb_respawns` always meant to do — pushing it
+        // behind `z = -1.0` never worked, because the background sits at
+        // `z = -100`, so the orb kept rendering for the whole 0.6 s.
+        //
+        // `OrbRespawn` and `OrbitOrb` are mutually exclusive on the orb entity
+        // (explosion swaps one for the other), so matching `With<OrbRespawn>`
+        // every frame hides idempotently with no reliance on change-detection
+        // order. The render layer's `attach_orb_sprite` restores
+        // `Visibility::Visible` once `OrbitOrb` returns.
+        commands.entity(entity).insert(Visibility::Hidden);
     }
 }
 
@@ -435,7 +450,13 @@ fn animate_bomber_explosions(
         } else {
             1.0
         };
-        transform.scale = Vec3::splat(progress.max(0.05));
+        // The ring grows to its true AOE radius (the mesh's outer edge at
+        // scale 1.0) over the first 70% of the lifetime, then holds there while
+        // it fades. The old code scaled 0->1 across the whole lifetime, so the
+        // ring only reached the real radius at progress = 1.0 — exactly when
+        // alpha hit 0, meaning the blast radius was never actually visible.
+        let grow = (progress / 0.7).clamp(0.0, 1.0);
+        transform.scale = Vec3::splat(grow.max(0.05));
         if let Some(material) = materials.get_mut(&material.0) {
             material.color = Color::srgba(1.0, 0.35, 0.12, 0.85 * (1.0 - progress));
         }

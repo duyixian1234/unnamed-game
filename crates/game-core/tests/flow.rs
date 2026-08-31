@@ -136,12 +136,19 @@ fn headless(seed: u64, max_waves: u32, with_ai: bool) -> App {
 
 /// Advance the simulation by one fixed step.
 fn step(app: &mut App) {
+    step_by(app, STEP);
+}
+
+/// Advance the simulation by `delta` seconds. Used to prove cooldowns are
+/// ticked by accumulated time, not frame count: the same wall-clock window
+/// stepped at different granularity must produce identical results.
+fn step_by(app: &mut App, delta: f32) {
     {
         let mut strategy = app.world_mut().resource_mut::<TimeUpdateStrategy>();
         let TimeUpdateStrategy::ManualInstant(instant) = &mut *strategy else {
             panic!("harness must use TimeUpdateStrategy::ManualInstant");
         };
-        *instant += Duration::from_secs_f32(STEP);
+        *instant += Duration::from_secs_f32(delta);
     }
     app.update();
 }
@@ -417,6 +424,62 @@ fn orbiting_orb_rehit_cooldown_is_time_based() {
         first_hit,
         "same enemy cannot be hit again within 0.25 seconds"
     );
+}
+
+#[test]
+fn orb_rehit_cooldown_is_frame_rate_independent() {
+    // The same stationary-orb scenario, stepped in two granularities over the
+    // same wall-clock window. The window spans two full 0.25s re-hit windows
+    // (hits at ~0, 0.25, 0.50) but not the third (0.75), so the hit count is 3
+    // for any step size — a stable window that proves the cooldown is ticked
+    // by accumulated time, not frame count (issue #20, gap D).
+    let run_total_after_window = |delta: f32| -> f32 {
+        let mut app = headless(42, 5, false);
+        app.insert_resource(WaveConfig {
+            max_waves: 5,
+            spawning: false,
+        });
+        app.update();
+        start_run_with_weapon(&mut app, WeaponKind::OrbitingOrb);
+        for mut weapon in app
+            .world_mut()
+            .query::<&mut Weapon>()
+            .iter_mut(app.world_mut())
+        {
+            weapon.knockback_mult = 0.0;
+        }
+        for mut weapon in app
+            .world_mut()
+            .query::<&mut Weapon>()
+            .iter_mut(app.world_mut())
+        {
+            weapon.orbit_speed = 0.0;
+        }
+        app.world_mut().spawn((
+            Enemy {
+                kind: EnemyKind::MeleeRusher,
+                speed: 0.0,
+                health: 1.0e6,
+                split_depth: 0,
+            },
+            Transform::from_xyz(70.0, 0.0, 0.0),
+        ));
+        for _ in 0..120 {
+            step_by(&mut app, delta);
+            if app.world().resource::<DamageStats>().run.total() > 0.0 {
+                break;
+            }
+        }
+        let steps = (0.55 / delta).round() as u32;
+        for _ in 0..steps {
+            step_by(&mut app, delta);
+        }
+        app.world().resource::<DamageStats>().run.total()
+    };
+    let coarse = run_total_after_window(1.0 / 30.0);
+    let fine = run_total_after_window(1.0 / 120.0);
+    assert!(coarse > 0.0, "stationary orb lands hits");
+    assert_eq!(coarse, fine, "re-hit count must not depend on frame rate");
 }
 
 #[test]

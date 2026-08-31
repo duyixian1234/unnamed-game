@@ -188,3 +188,59 @@ pub(crate) fn finish_wave(mut stats: ResMut<DamageStats>) {
 pub(crate) fn reset_run(mut stats: ResMut<DamageStats>) {
     *stats = DamageStats::default();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::weapon::WeaponKind;
+
+    #[test]
+    fn other_bucket_accumulates_separately_from_weapon_slots() {
+        // No gameplay source emits `DamageSource::Other` yet, so this is the
+        // only way to exercise the bucket directly. Regression guard for the
+        // "Other" row in the damage summary (issue #20, gap C): its total must
+        // fold in non-weapon damage without mixing it into any slot.
+        let mut stats = DamageStats::default();
+        stats.record(DamageSource::Other, 7.0);
+        stats.record(
+            DamageSource::Weapon {
+                slot: WeaponSlot(0),
+                kind: WeaponKind::OrbitingOrb,
+            },
+            3.0,
+        );
+
+        assert_eq!(
+            stats.current_wave.other, 7.0,
+            "Other stays in its own bucket"
+        );
+        assert_eq!(
+            stats.run.other, 7.0,
+            "Other is tracked on the run total too"
+        );
+        assert_eq!(stats.current_wave.total(), 10.0, "total folds in Other");
+        assert_eq!(
+            stats
+                .current_wave
+                .slot(WeaponSlot(0))
+                .unwrap()
+                .effective_damage,
+            3.0,
+            "weapon slot is untouched by Other damage"
+        );
+    }
+
+    #[test]
+    fn non_positive_damage_is_not_recorded() {
+        let mut stats = DamageStats::default();
+        stats.record(DamageSource::Other, 0.0);
+        stats.record(
+            DamageSource::Weapon {
+                slot: WeaponSlot(0),
+                kind: WeaponKind::OrbitingOrb,
+            },
+            -4.0,
+        );
+        assert_eq!(stats.current_wave.total(), 0.0);
+    }
+}

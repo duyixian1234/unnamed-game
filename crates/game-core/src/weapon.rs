@@ -639,6 +639,9 @@ fn update_orbs(
         };
         let mut entity_commands = commands.entity(entity);
         entity_commands.remove::<OrbRespawn>();
+        // The sprite's visibility (it was hidden during respawn) is restored
+        // by the render layer's `attach_orb_sprite`, not here — `game-core`
+        // stays free of render concerns (ADR-0004).
         entity_commands.insert((orb, Transform::from_translation(player_pos)));
         if respawn.bomber {
             entity_commands.insert(BomberOrb);
