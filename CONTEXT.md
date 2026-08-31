@@ -30,6 +30,10 @@ Current gameplay version: 0.5.0.
 - **Upgrade Choice (升级选择)**: the mandatory moment after each Wave ends and before the Shop opens, where the Player selects one upgrade option for one Weapon. Cannot be skipped; no rerolls.
 - **Effective Damage (有效伤害)**: the amount of Enemy health actually removed by an attack, capped by the Enemy's remaining health. Overkill is excluded.
 - **Weapon Damage Contribution (武器输出贡献)**: a Weapon Slot's Effective Damage during one Wave or across the current Run, shown together with its share of all Effective Damage in the same period. Non-weapon damage is grouped as Other.
+- **诊断叠层 (Diagnostics Overlay)**: an app-layer performance readout — FPS, frame time, worst frame time in the window, Enemy count, and total entity count. Hidden by default, toggled by the backquote key or a Settings option, and present in every GameState. _Avoid_: 帧率显示, 调试面板, HUD — it is not part of the HUD and is not a player-facing element.
+- **设置 (Settings)**: the player's preferences, and a presentation-layer (app) concern only: SFX mute, SFX volume, fullscreen, and the Diagnostics Overlay toggle. Persisted across sessions, except fullscreen, which is session-only because browsers require a user gesture to enter it (ADR 0011). _Avoid_: 配置 / config — gameplay parameters (e.g. wave count) belong to `game-core`, not to Settings.
+- **静音 (Mute)**: a boolean state independent of SFX volume. While muted nothing plays, but the volume value is preserved, so unmuting restores it. _Avoid_: 音量归零 — muting must not destroy the volume value.
+- **暂停 (Pause)**: not implemented. Pause stops the Wave timer and RNG draws, which makes it a simulation concern belonging to `game-core`. _Avoid_: treating Pause as part of Settings — the two sit on opposite sides of the ADR-0004 boundary.
 
 ## Decisions (see docs/adr/)
 - Use the Bevy engine, pinned to 0.17.
@@ -58,6 +62,7 @@ Current gameplay version: 0.5.0.
 - **Determinism**: Runs are seeded and reproducible; a single managed RNG with explicit system ordering — see ADR 0005.
 - **Deployment**: Cloudflare Pages (static Trunk build); the wasm bundle must fit the 25 MiB per-file limit, so Bevy features are trimmed and size-optimized — see ADR 0006.
 - **UI**: Bevy built-in `bevy_ui` for HUD / shop / menu.
+- **Settings persistence**: `bevy_persistent` 0.9.0 — localStorage on wasm, a file on native; fullscreen is deliberately excluded from the persisted set — see ADR 0011.
 - **State machine**: Bevy `States` for MainMenu → InGame(wave) → Shop → … → Victory/Defeat.
 - **Background**: per-wave fractal (FBM) noise texture generated at runtime in the app layer; variant derived deterministically from Seed + wave number; fills the viewport with a subtle field-boundary line. Purely cosmetic.
 
