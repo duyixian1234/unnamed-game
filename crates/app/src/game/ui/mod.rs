@@ -5,6 +5,7 @@
 pub mod end_screen;
 pub mod hud;
 pub mod main_menu;
+pub mod settings_screen;
 pub mod shop;
 pub mod starting_weapon;
 pub mod upgrade;
@@ -24,6 +25,7 @@ impl Plugin for UIPlugin {
             end_screen::EndScreenPlugin,
             hud::HudPlugin,
             main_menu::MainMenuPlugin,
+            settings_screen::SettingsScreenPlugin,
             shop::ShopPlugin,
             starting_weapon::StartingWeaponPlugin,
             upgrade::UpgradeScreenPlugin,
@@ -35,6 +37,26 @@ impl Plugin for UIPlugin {
 /// Marker for a UI screen root node, used to clean up screens on state exit.
 #[derive(Component)]
 pub struct ScreenRoot;
+
+/// Standard button colours, for screens that share them. The older screens
+/// (shop, upgrade, weapon choice) still inline their own highlight logic.
+pub const BUTTON_IDLE: Color = Color::srgb(0.2, 0.4, 0.8);
+pub const BUTTON_HOVERED: Color = Color::srgb(0.3, 0.5, 0.9);
+pub const BUTTON_PRESSED: Color = Color::srgb(0.15, 0.3, 0.6);
+
+/// Replace one full-screen screen with another: despawn every `ScreenRoot`,
+/// then spawn. Used by screens opened imperatively rather than by a
+/// `GameState` transition — `GameState` is a simulation concern (ADR-0004).
+pub fn swap_screen(
+    commands: &mut Commands,
+    roots: &Query<Entity, With<ScreenRoot>>,
+    spawn: impl FnOnce(&mut Commands),
+) {
+    for root in roots {
+        commands.entity(root).despawn();
+    }
+    spawn(commands);
+}
 
 /// The subsetted Chinese UI font (ADR-0007). `AssetServer.load` dedups by
 /// path, so calling this per screen is cheap and avoids load-order hazards.

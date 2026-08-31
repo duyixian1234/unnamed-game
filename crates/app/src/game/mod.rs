@@ -6,6 +6,7 @@ pub mod background;
 pub mod diagnostics;
 pub mod keyboard;
 pub mod render;
+pub mod settings;
 pub mod ui;
 
 use bevy::prelude::*;
@@ -26,6 +27,7 @@ impl Plugin for AppPlugin {
             background::BackgroundPlugin,
             diagnostics::DiagnosticsOverlayPlugin,
             render::RenderPlugin,
+            settings::SettingsPlugin,
             keyboard::KeyboardIntentPlugin,
             ui::UIPlugin,
         ));

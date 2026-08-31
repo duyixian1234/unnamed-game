@@ -1,5 +1,9 @@
 //! 诊断叠层 (Diagnostics Overlay): an app-layer performance readout, hidden by
-//! default and toggled with the backquote key (see CONTEXT.md glossary).
+//! default (see CONTEXT.md glossary).
+//!
+//! This module draws and refreshes the overlay but does not decide whether it
+//! is shown: `OverlayVisible` is written by `settings`, which persists it and
+//! owns the hotkey. Here it is read-only.
 //!
 //! Deliberately not built on `FrameTimeDiagnosticsPlugin`: it publishes only
 //! smoothed averages for fps / frame_time / frame_count, and the point of this
@@ -10,12 +14,11 @@
 use std::collections::VecDeque;
 
 use bevy::ecs::entity::Entities;
-use bevy::input::keyboard::KeyCode;
-use bevy::input::ButtonInput;
 use bevy::prelude::*;
 
 use game_core::enemy::Enemy;
 
+use super::settings::SettingsStore;
 use super::ui::ui_font;
 
 /// Length of the rolling statistics window, in seconds.
@@ -24,13 +27,6 @@ const WINDOW_SECS: f32 = 2.0;
 /// How often the readout text is rebuilt, in seconds. Rebuilding text every
 /// frame would make the overlay a source of the stutter it is measuring.
 const REFRESH_SECS: f32 = 0.25;
-
-/// Whether the overlay is currently shown.
-///
-/// The Settings screen will own this value once preferences are persisted;
-/// until then only the backquote key flips it.
-#[derive(Resource, Default)]
-pub struct OverlayVisible(pub bool);
 
 /// Rolling frame timings plus the text refresh timer.
 #[derive(Resource, Default)]
@@ -73,10 +69,9 @@ pub struct DiagnosticsOverlayPlugin;
 
 impl Plugin for DiagnosticsOverlayPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<OverlayVisible>()
-            .init_resource::<FrameTiming>()
+        app.init_resource::<FrameTiming>()
             .add_systems(Startup, spawn_overlay)
-            .add_systems(Update, (toggle_overlay, sample_frames).chain())
+            .add_systems(Update, (sync_overlay_visibility, sample_frames).chain())
             // The readout is rebuilt in `Last`, not `Update`, so the entity
             // counts reflect this frame's despawn commands — a wave
             // transition is exactly when hundreds of enemies are despawned at
@@ -88,7 +83,7 @@ impl Plugin for DiagnosticsOverlayPlugin {
 fn spawn_overlay(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    visible: Res<OverlayVisible>,
+    settings: Res<SettingsStore>,
 ) {
     commands
         .spawn((
@@ -96,10 +91,9 @@ fn spawn_overlay(
             // Above every other UI root: `ZIndex` only orders siblings, so a
             // separate root needs the global variant.
             GlobalZIndex(1),
-            // Mirrors the resource rather than hardcoding Hidden: once the
-            // Settings screen restores a persisted `true`, the overlay has to
-            // start visible without waiting for a keypress.
-            visibility_for(visible.0),
+            // Starts from the persisted setting, so a restored `true` is
+            // visible immediately rather than after the first keypress.
+            visibility_for(settings.settings.overlay),
             Node {
                 position_type: PositionType::Absolute,
                 top: Val::Px(16.0),
@@ -117,20 +111,27 @@ fn spawn_overlay(
         ));
 }
 
-fn toggle_overlay(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut visible: ResMut<OverlayVisible>,
+/// Mirror the persisted overlay setting onto the root node.
+///
+/// Compares against what is already applied rather than watching change
+/// ticks. The setting is written from another plugin, and catching a
+/// one-frame change tick by schedule order alone is fragile — if this system
+/// ever ran first, the toggle would be dropped for good.
+fn sync_overlay_visibility(
+    settings: Res<SettingsStore>,
     mut timing: ResMut<FrameTiming>,
     mut roots: Query<&mut Visibility, With<OverlayRoot>>,
 ) {
-    if !keyboard.just_pressed(KeyCode::Backquote) {
-        return;
-    }
-    visible.0 = !visible.0;
+    let wanted = visibility_for(settings.settings.overlay);
     for mut visibility in &mut roots {
-        *visibility = visibility_for(visible.0);
+        if *visibility == wanted {
+            continue;
+        }
+        *visibility = wanted;
+        // Refresh immediately rather than up to REFRESH_SECS later, so the
+        // numbers mean something the moment the overlay appears.
+        timing.refresh_now();
     }
-    timing.refresh_now();
 }
 
 fn visibility_for(visible: bool) -> Visibility {
@@ -162,8 +163,11 @@ fn refresh_overlay_text(
     }
 }
 
-fn overlay_is_visible(visible: Res<OverlayVisible>) -> bool {
-    visible.0
+/// Run condition: only refresh the readout while the overlay is meant to be
+/// up. Reads the setting directly rather than a mirrored resource, so there
+/// is no second copy to fall out of step.
+fn overlay_is_visible(settings: Res<SettingsStore>) -> bool {
+    settings.settings.overlay
 }
 
 /// Rolling window of real frame deltas.

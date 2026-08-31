@@ -1,6 +1,6 @@
 # Settings persistence via `bevy_persistent`
 
-Status: accepted, **not yet implemented** — scheduled as the Settings-screen issue (#22). No `bevy_persistent` or `serde` dependency has been added to `Cargo.toml` yet.
+Status: accepted and implemented (issue #22). `bevy-persistent` 0.9 with the `json` feature and `serde` with `derive` are dependencies of `crates/app`.
 
 Settings (SFX mute, SFX volume, Diagnostics Overlay toggle) must survive a reload, and the game targets both wasm (localStorage) and native (a file). We adopted `bevy_persistent` 0.9.0, which ships that split itself — `LocalStorage` via `gloo-storage` on wasm, `Filesystem` on native — instead of hand-rolling the project's first `cfg(target_arch = "wasm32")` block. 0.9.0 is pinned because it is the only release whose Bevy bound is `^0.17`; 0.10/0.11 target Bevy 0.18/0.19.
 

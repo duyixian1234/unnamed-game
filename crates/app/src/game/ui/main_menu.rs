@@ -4,23 +4,34 @@ use bevy::prelude::*;
 
 use game_core::GameState;
 
-use super::{ui_font, ScreenRoot};
+use super::settings_screen::spawn_settings_screen;
+use super::{swap_screen, ui_font, ScreenRoot, BUTTON_HOVERED, BUTTON_IDLE};
 
 /// Plugin that owns the main menu screen and its interactions.
 pub struct MainMenuPlugin;
 
 impl Plugin for MainMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::MainMenu), spawn_main_menu)
+        app.add_systems(OnEnter(GameState::MainMenu), on_enter_main_menu)
             .add_systems(OnExit(GameState::MainMenu), despawn_main_menu)
-            .add_systems(Update, start_button);
+            .add_systems(Update, (start_button, settings_button));
     }
 }
 
 #[derive(Component)]
 struct StartButton;
 
-fn spawn_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+/// Opens the settings screen by swapping this screen out (see
+/// `settings_screen`: `GameState` is left untouched, per ADR-0004).
+#[derive(Component)]
+struct OpenSettingsButton;
+
+fn on_enter_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+    spawn_main_menu(&mut commands, &asset_server);
+}
+
+/// Spawn the main menu. Public so the settings screen can hand control back.
+pub fn spawn_main_menu(commands: &mut Commands, asset_server: &AssetServer) {
     commands
         .spawn((
             ScreenRoot,
@@ -37,7 +48,7 @@ fn spawn_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
         .with_children(|parent| {
             parent.spawn((
                 Text::new("unnamed-game"),
-                ui_font(&asset_server, 64.0),
+                ui_font(asset_server, 64.0),
                 TextColor(Color::WHITE),
             ));
             parent
@@ -48,11 +59,26 @@ fn spawn_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                         padding: UiRect::axes(Val::Px(40.0), Val::Px(16.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgb(0.2, 0.4, 0.8)),
+                    BackgroundColor(BUTTON_IDLE),
                 ))
                 .with_child((
                     Text::new("开始"),
-                    ui_font(&asset_server, 32.0),
+                    ui_font(asset_server, 32.0),
+                    TextColor(Color::WHITE),
+                ));
+            parent
+                .spawn((
+                    OpenSettingsButton,
+                    Button,
+                    Node {
+                        padding: UiRect::axes(Val::Px(32.0), Val::Px(12.0)),
+                        ..default()
+                    },
+                    BackgroundColor(BUTTON_IDLE),
+                ))
+                .with_child((
+                    Text::new("设置"),
+                    ui_font(asset_server, 26.0),
                     TextColor(Color::WHITE),
                 ));
         });
@@ -79,10 +105,37 @@ fn start_button(
                 next_state.set(GameState::StartingWeaponChoice);
             }
             Interaction::Hovered => {
-                *color = BackgroundColor(Color::srgb(0.3, 0.5, 0.9));
+                *color = BackgroundColor(BUTTON_HOVERED);
             }
             Interaction::None => {
-                *color = BackgroundColor(Color::srgb(0.2, 0.4, 0.8));
+                *color = BackgroundColor(BUTTON_IDLE);
+            }
+        }
+    }
+}
+
+#[allow(clippy::type_complexity)] // Changed<Interaction> + With<OpenSettingsButton> filter
+fn settings_button(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    roots: Query<Entity, With<ScreenRoot>>,
+    mut interaction: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<OpenSettingsButton>),
+    >,
+) {
+    for (interaction, mut color) in &mut interaction {
+        match *interaction {
+            Interaction::Pressed => {
+                swap_screen(&mut commands, &roots, |commands| {
+                    spawn_settings_screen(commands, &asset_server);
+                });
+            }
+            Interaction::Hovered => {
+                *color = BackgroundColor(BUTTON_HOVERED);
+            }
+            Interaction::None => {
+                *color = BackgroundColor(BUTTON_IDLE);
             }
         }
     }
