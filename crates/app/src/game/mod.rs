@@ -3,6 +3,7 @@
 pub mod assets;
 pub mod audio;
 pub mod background;
+pub mod diagnostics;
 pub mod keyboard;
 pub mod render;
 pub mod ui;
@@ -23,6 +24,7 @@ impl Plugin for AppPlugin {
             assets::AssetsPlugin,
             audio::SfxPlugin,
             background::BackgroundPlugin,
+            diagnostics::DiagnosticsOverlayPlugin,
             render::RenderPlugin,
             keyboard::KeyboardIntentPlugin,
             ui::UIPlugin,
