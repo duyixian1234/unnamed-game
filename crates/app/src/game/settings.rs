@@ -108,6 +108,15 @@ impl SettingsStore {
         )
     }
 
+    /// A `SettingsStore` with no persistence behind it, for headless tests.
+    #[cfg(test)]
+    pub(crate) fn unpersisted(settings: Settings) -> Self {
+        SettingsStore {
+            settings,
+            persistent: None,
+        }
+    }
+
     /// Flip 静音 and report the new state.
     ///
     /// The stored volume is deliberately left alone: it is the value unmuting
