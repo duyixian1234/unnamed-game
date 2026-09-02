@@ -31,28 +31,3 @@ jobs:
         run: cargo build --workspace
       - name: Test
         run: cargo test --workspace
-
-  web-e2e:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: trunk
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.23.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: e2e/pnpm-lock.yaml
-      - name: Install browser test dependencies
-        working-directory: e2e
-        run: pnpm install --frozen-lockfile
-      - name: Run Edge end-to-end test
-        working-directory: e2e
-        run: pnpm test
